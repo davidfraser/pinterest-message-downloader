@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "Pinterest Message Image Downloader",
+  "version": "1.0.0",
+  "description": "Downloads images from Pinterest messages and saves pin links",
+  "permissions": [
+    "storage",
+    "downloads",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://*.pinterest.com/*",
+    "https://*.pinimg.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.pinterest.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Pinterest Image Downloader"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["injected.js"],
+      "matches": ["https://*.pinterest.com/*"]
+    }
+  ]
+}

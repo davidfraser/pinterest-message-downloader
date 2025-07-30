@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body {
+            width: 300px;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .logo {
+            width: 32px;
+            height: 32px;
+            background: #e60023;
+            border-radius: 50%;
+            margin: 0 auto 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        .status.active {
+            background: #e8f5e8;
+            color: #2d5a2d;
+            border: 1px solid #4caf50;
+        }
+        .status.inactive {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffc107;
+        }
+        .button {
+            width: 100%;
+            padding: 10px;
+            background: #e60023;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px 0;
+        }
+        .button:hover {
+            background: #d50020;
+        }
+        .button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .stats {
+            font-size: 12px;
+            color: #666;
+            text-align: center;
+            margin-top: 15px;
+        }
+        .info {
+            font-size: 12px;
+            color: #888;
+            line-height: 1.4;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo">P</div>
+        <h3>Pinterest Image Downloader</h3>
+    </div>
+
+    <div id="status" class="status inactive">
+        Status: Not on Pinterest messages
+    </div>
+
+    <button id="scanButton" class="button" disabled>
+        Scan for New Images
+    </button>
+
+    <button id="clearButton" class="button">
+        Clear Download History
+    </button>
+
+    <div class="stats">
+        <div>Downloaded: <span id="downloadCount">0</span> images</div>
+        <div>Last scan: <span id="lastScan">Never</span></div>
+    </div>
+
+    <div class="info">
+        <strong>How to use:</strong><br>
+        1. Go to Pinterest messages<br>
+        2. Extension will auto-scan for images<br>
+        3. Images are saved by sender in Downloads folder<br>
+        4. Pin links are saved in monthly HTML files
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+</html>
