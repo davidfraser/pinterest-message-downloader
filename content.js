@@ -3,14 +3,21 @@ class PinterestMessageParser {
   constructor() {
     this.isProcessing = false;
     this.observer = null;
-    this.lastProcessedTimestamp = 0;
+    this.lastProcessedMessageId = '';
+    this.autoDownload = false; // Only download when user clicks button
     this.init();
   }
 
   async init() {
-    // Get last processed timestamp from background
+    // Get last processed message ID from background
     const response = await chrome.runtime.sendMessage({ type: 'GET_LAST_PROCESSED' });
-    this.lastProcessedTimestamp = response.lastProcessedTimestamp || 0;
+    this.lastProcessedMessageId = response.lastProcessedMessageId || '';
+    
+    // Listen for manual scan trigger from popup
+    window.addEventListener('pinterestManualScan', () => {
+      this.autoDownload = true;
+      this.processMessages();
+    });
     
     // Wait for page to load completely
     if (document.readyState === 'loading') {
@@ -50,21 +57,11 @@ class PinterestMessageParser {
   }
 
   findMessagesContainer() {
-    // Pinterest messages might be in various containers
-    const possibleSelectors = [
-      '[data-test-id="messages-container"]',
-      '[data-test-id="conversation-messages"]',
-      '.messages-container',
-      '.conversation-messages',
-      '[role="main"] [role="log"]'
-    ];
-
-    for (const selector of possibleSelectors) {
-      const container = document.querySelector(selector);
-      if (container) {
-        this.messagesContainer = container;
-        break;
-      }
+    // Look specifically for the messages-container as specified
+    this.messagesContainer = document.querySelector('[data-test-id="messages-container"]');
+    
+    if (!this.messagesContainer) {
+      console.log('Pinterest Downloader: messages-container not found');
     }
   }
 
@@ -76,16 +73,19 @@ class PinterestMessageParser {
       const images = await this.extractImages();
       
       if (images.length > 0) {
-        // Filter out already processed images
-        const newImages = images.filter(img => img.timestamp > this.lastProcessedTimestamp);
+        // Filter out already processed images based on message ID
+        const newImages = images.filter(img => img.messageId !== this.lastProcessedMessageId);
         
-        if (newImages.length > 0) {
+        if (newImages.length > 0 && this.autoDownload) {
           await chrome.runtime.sendMessage({
             type: 'DOWNLOAD_IMAGES',
             images: newImages
           });
           
-          console.log(`Pinterest Downloader: Found ${newImages.length} new images to download`);
+          console.log(`Pinterest Downloader: Downloaded ${newImages.length} new images`);
+          this.autoDownload = false; // Reset after download
+        } else if (newImages.length > 0) {
+          console.log(`Pinterest Downloader: Found ${newImages.length} new images (waiting for user to click download)`);
         }
       }
     } catch (error) {
@@ -98,19 +98,17 @@ class PinterestMessageParser {
   async extractImages() {
     const images = [];
     
-    // Look for message elements - Pinterest uses various selectors
-    const messageSelectors = [
-      '[data-test-id="message"]',
-      '[data-test-id="pin-message"]',
-      '.message',
-      '.pin-message',
-      '[role="listitem"]'
-    ];
+    if (!this.messagesContainer) {
+      console.log('Pinterest Downloader: No messages container found');
+      return images;
+    }
 
-    let messages = [];
-    for (const selector of messageSelectors) {
-      messages = document.querySelectorAll(selector);
-      if (messages.length > 0) break;
+    // Look specifically for message-item-container elements
+    const messages = this.messagesContainer.querySelectorAll('[data-test-id="message-item-container"]');
+    
+    if (messages.length === 0) {
+      console.log('Pinterest Downloader: No message-item-container elements found');
+      return images;
     }
 
     for (const message of messages) {
@@ -124,7 +122,7 @@ class PinterestMessageParser {
       }
     }
 
-    return images.sort((a, b) => b.timestamp - a.timestamp); // Newest first
+    return images; // Don't sort, keep original order
   }
 
   async extractImageFromMessage(messageElement) {
@@ -135,28 +133,30 @@ class PinterestMessageParser {
     // Skip profile pictures and UI elements
     if (this.isUIImage(img)) return null;
 
-    // Extract sender information
-    const sender = this.extractSender(messageElement);
-    if (!sender) return null;
+    // Look for the specific pin link format with sender and message info
+    const pinLink = messageElement.querySelector('a[href*="/pin/"][href*="conversation_id"][href*="message"][href*="sender"]');
+    if (!pinLink) {
+      console.log('Pinterest Downloader: No valid pin link found in message');
+      return null;
+    }
 
-    // Extract timestamp
-    const timestamp = this.extractTimestamp(messageElement);
-    
-    // Look for pin URL
-    const pinUrl = this.extractPinUrl(messageElement);
-    
-    // Extract pin ID from URL or image source
-    const pinId = this.extractPinId(pinUrl || img.src);
+    // Extract data from the link href
+    const linkData = this.extractLinkData(pinLink.href);
+    if (!linkData) {
+      console.log('Pinterest Downloader: Could not extract link data');
+      return null;
+    }
 
     // Get high-resolution image URL
     const imageUrl = this.getHighResImageUrl(img.src);
 
     return {
       imageUrl,
-      sender: this.sanitizeSender(sender),
-      timestamp,
-      pinUrl,
-      pinId
+      senderId: linkData.senderId,
+      messageId: linkData.messageId,
+      conversationId: linkData.conversationId,
+      pinId: linkData.pinId,
+      pinUrl: pinLink.href
     };
   }
 
@@ -175,101 +175,25 @@ class PinterestMessageParser {
     );
   }
 
-  extractSender(messageElement) {
-    // Look for sender name in various possible locations
-    const senderSelectors = [
-      '[data-test-id="sender-name"]',
-      '.sender-name',
-      '.message-sender',
-      '.username',
-      'h3',
-      'h4',
-      '[role="heading"]'
-    ];
-
-    for (const selector of senderSelectors) {
-      const element = messageElement.querySelector(selector);
-      if (element && element.textContent.trim()) {
-        return element.textContent.trim();
-      }
+  extractLinkData(href) {
+    try {
+      // Parse URL to extract parameters
+      const url = new URL(href, 'https://pinterest.com');
+      const pathMatch = url.pathname.match(/\/pin\/(\d+)/);
+      const searchParams = new URLSearchParams(url.search);
+      
+      if (!pathMatch) return null;
+      
+      return {
+        pinId: pathMatch[1],
+        conversationId: searchParams.get('conversation_id'),
+        messageId: searchParams.get('message'),
+        senderId: searchParams.get('sender')
+      };
+    } catch (error) {
+      console.error('Error parsing link data:', error);
+      return null;
     }
-
-    // Try to find sender in parent elements
-    let parent = messageElement.parentElement;
-    for (let i = 0; i < 3 && parent; i++) {
-      for (const selector of senderSelectors) {
-        const element = parent.querySelector(selector);
-        if (element && element.textContent.trim()) {
-          return element.textContent.trim();
-        }
-      }
-      parent = parent.parentElement;
-    }
-
-    return 'Unknown';
-  }
-
-  extractTimestamp(messageElement) {
-    // Look for timestamp elements
-    const timeSelectors = [
-      'time',
-      '[datetime]',
-      '.timestamp',
-      '.message-time',
-      '[data-test-id="timestamp"]'
-    ];
-
-    for (const selector of timeSelectors) {
-      const element = messageElement.querySelector(selector);
-      if (element) {
-        const datetime = element.getAttribute('datetime') || element.textContent;
-        const timestamp = new Date(datetime).getTime();
-        if (!isNaN(timestamp)) {
-          return timestamp;
-        }
-      }
-    }
-
-    // Fallback to current time if no timestamp found
-    return Date.now();
-  }
-
-  extractPinUrl(messageElement) {
-    // Look for Pinterest pin links
-    const links = messageElement.querySelectorAll('a[href*="pinterest.com/pin/"]');
-    if (links.length > 0) {
-      return links[0].href;
-    }
-
-    // Check parent elements for pin links
-    let parent = messageElement.parentElement;
-    for (let i = 0; i < 3 && parent; i++) {
-      const links = parent.querySelectorAll('a[href*="pinterest.com/pin/"]');
-      if (links.length > 0) {
-        return links[0].href;
-      }
-      parent = parent.parentElement;
-    }
-
-    return null;
-  }
-
-  extractPinId(urlOrSrc) {
-    if (!urlOrSrc) return null;
-    
-    // Extract pin ID from Pinterest URL
-    const pinMatch = urlOrSrc.match(/pin\/(\d+)/);
-    if (pinMatch) {
-      return pinMatch[1];
-    }
-
-    // Extract ID from image URL
-    const idMatch = urlOrSrc.match(/(\d+)x/);
-    if (idMatch) {
-      return idMatch[1];
-    }
-
-    return null;
   }
 
   getHighResImageUrl(imageSrc) {
@@ -283,11 +207,6 @@ class PinterestMessageParser {
     }
     
     return imageSrc;
-  }
-
-  sanitizeSender(sender) {
-    // Remove invalid filename characters
-    return sender.replace(/[<>:"/\\|?*]/g, '_').substring(0, 50);
   }
 }
 

@@ -64,13 +64,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   async function loadStats() {
     try {
-      const data = await chrome.storage.local.get(['downloadedImages', 'lastProcessedTimestamp']);
+      const data = await chrome.storage.local.get(['downloadedImages', 'lastProcessedMessageId']);
       const images = data.downloadedImages || [];
       downloadCount.textContent = images.length.toString();
       
-      if (data.lastProcessedTimestamp) {
-        const date = new Date(data.lastProcessedTimestamp);
-        lastScan.textContent = date.toLocaleString();
+      if (data.lastProcessedMessageId) {
+        lastScan.textContent = `Message ID: ${data.lastProcessedMessageId}`;
       }
     } catch (error) {
       console.error('Failed to load stats:', error);
@@ -91,8 +90,8 @@ chrome.storage.onChanged.addListener((changes) => {
     document.getElementById('downloadCount').textContent = count.toString();
   }
   
-  if (changes.lastProcessedTimestamp && changes.lastProcessedTimestamp.newValue) {
-    const date = new Date(changes.lastProcessedTimestamp.newValue);
-    document.getElementById('lastScan').textContent = date.toLocaleString();
+  if (changes.lastProcessedMessageId && changes.lastProcessedMessageId.newValue) {
+    const messageId = changes.lastProcessedMessageId.newValue;
+    document.getElementById('lastScan').textContent = `Message ID: ${messageId}`;
   }
 });

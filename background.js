@@ -6,26 +6,25 @@ class PinterestDownloader {
   }
 
   async initializeStorage() {
-    const result = await chrome.storage.local.get(['downloadedImages', 'lastProcessedTimestamp']);
+    const result = await chrome.storage.local.get(['downloadedImages', 'lastProcessedMessageId']);
     this.downloadedImages = new Set(result.downloadedImages || []);
-    this.lastProcessedTimestamp = result.lastProcessedTimestamp || 0;
+    this.lastProcessedMessageId = result.lastProcessedMessageId || '';
   }
 
-  async saveProgress(imageId, timestamp) {
+  async saveProgress(imageId, messageId) {
     this.downloadedImages.add(imageId);
-    this.lastProcessedTimestamp = Math.max(this.lastProcessedTimestamp, timestamp);
+    this.lastProcessedMessageId = messageId;
     
     await chrome.storage.local.set({
       downloadedImages: Array.from(this.downloadedImages),
-      lastProcessedTimestamp: this.lastProcessedTimestamp
+      lastProcessedMessageId: this.lastProcessedMessageId
     });
   }
 
-  generateFilename(imageUrl, sender, timestamp, pinId) {
-    const date = new Date(timestamp).toISOString().replace(/[:.]/g, '-');
+  generateFilename(imageUrl, senderId, messageId, pinId) {
     const extension = this.getImageExtension(imageUrl);
-    const identifier = pinId ? `pin_${pinId}` : `img_${Date.now()}`;
-    return `${sender}/${date}_${identifier}${extension}`;
+    const identifier = pinId ? `pin_${pinId}` : `msg_${messageId}`;
+    return `sender_${senderId}/${messageId}_${identifier}${extension}`;
   }
 
   getImageExtension(url) {
@@ -113,8 +112,8 @@ class PinterestDownloader {
             <div class="pin-card">
                 <img src="${img.imageUrl}" alt="Pinterest Pin" class="pin-image" loading="lazy">
                 <div class="pin-info">
-                    <div class="pin-sender">From: ${img.sender}</div>
-                    <div class="pin-date">${new Date(img.timestamp).toLocaleString()}</div>
+                    <div class="pin-sender">From: Sender ${img.senderId}</div>
+                    <div class="pin-date">Message: ${img.messageId}</div>
                     ${img.pinUrl ? `<a href="${img.pinUrl}" target="_blank" class="pin-link">View Original Pin</a>` : ''}
                 </div>
             </div>
@@ -133,7 +132,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleDownloadImages(message.images);
     sendResponse({ success: true });
   } else if (message.type === 'GET_LAST_PROCESSED') {
-    sendResponse({ lastProcessedTimestamp: downloader.lastProcessedTimestamp });
+    sendResponse({ lastProcessedMessageId: downloader.lastProcessedMessageId });
   }
 });
 
@@ -142,17 +141,17 @@ async function handleDownloadImages(images) {
   
   for (const img of images) {
     // Skip if already downloaded
-    const imageId = `${img.sender}_${img.timestamp}_${img.imageUrl}`;
+    const imageId = `${img.senderId}_${img.messageId}_${img.imageUrl}`;
     if (downloader.downloadedImages.has(imageId)) {
       continue;
     }
 
     // Download image
-    const filename = downloader.generateFilename(img.imageUrl, img.sender, img.timestamp, img.pinId);
+    const filename = downloader.generateFilename(img.imageUrl, img.senderId, img.messageId, img.pinId);
     await downloader.downloadImage(img.imageUrl, filename);
 
-    // Group by month for HTML generation
-    const date = new Date(img.timestamp);
+    // Group by month for HTML generation (using current date since we don't have message timestamp)
+    const date = new Date();
     const monthKey = `${date.getFullYear()}-${date.getMonth() + 1}`;
     
     if (!imagesByMonth[monthKey]) {
@@ -161,7 +160,7 @@ async function handleDownloadImages(images) {
     imagesByMonth[monthKey].push(img);
 
     // Save progress
-    await downloader.saveProgress(imageId, img.timestamp);
+    await downloader.saveProgress(imageId, img.messageId);
   }
 
   // Generate monthly HTML files
