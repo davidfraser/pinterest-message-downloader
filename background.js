@@ -133,8 +133,121 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ success: true });
   } else if (message.type === 'GET_LAST_PROCESSED') {
     sendResponse({ lastProcessedMessageId: downloader.lastProcessedMessageId });
+  } else if (message.type === 'FETCH_PIN_IMAGE') {
+    handleFetchPinImage(message.pinUrl).then(result => {
+      sendResponse(result);
+    }).catch(error => {
+      console.error('Error fetching pin image:', error);
+      sendResponse({ error: error.message });
+    });
+    return true; // Keep the message channel open for async response
   }
 });
+
+async function handleFetchPinImage(pinUrl) {
+  try {
+    console.log('Background: Fetching pin page:', pinUrl);
+    
+    // Convert relative URL to absolute if needed
+    const fullUrl = pinUrl.startsWith('http') ? pinUrl : `https://pinterest.com${pinUrl}`;
+    
+    const response = await fetch(fullUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1'
+      }
+    });
+    
+    if (!response.ok) {
+      console.error('Background: Failed to fetch pin page:', response.status);
+      return { error: `HTTP ${response.status}` };
+    }
+    
+    const html = await response.text();
+    
+    // Parse the HTML using DOMParser
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    
+    // Look for the div with role="presentation"
+    const presentationDiv = doc.querySelector('div[role="presentation"]');
+    if (!presentationDiv) {
+      console.log('Background: No presentation div found, trying alternative selectors');
+      
+      // Try alternative approaches to find the main image
+      const alternatives = [
+        'img[data-test-id="pin-closeup-image"]',
+        '[data-test-id="closeup-image"] img',
+        '[data-test-id="pin-image"] img',
+        'img[alt*="Pin"]',
+        'main img[src*="pinimg.com"]'
+      ];
+      
+      for (const selector of alternatives) {
+        const img = doc.querySelector(selector);
+        if (img && img.src) {
+          console.log('Background: Found image using alternative selector:', selector);
+          return { 
+            imageUrl: getHighResImageUrl(img.src) 
+          };
+        }
+      }
+      
+      return { error: 'No presentation div or alternative image found' };
+    }
+    
+    // Look for the closeup-image div within the presentation div
+    const closeupDiv = presentationDiv.querySelector('div[data-test-id="closeup-image"]');
+    if (!closeupDiv) {
+      console.log('Background: No closeup-image div found in presentation div');
+      
+      // Try to find any image in the presentation div
+      const img = presentationDiv.querySelector('img');
+      if (img && img.src) {
+        console.log('Background: Found fallback image in presentation div');
+        return { 
+          imageUrl: getHighResImageUrl(img.src) 
+        };
+      }
+      
+      return { error: 'No closeup-image div found' };
+    }
+    
+    // Find the img element within the closeup-image div
+    const img = closeupDiv.querySelector('img');
+    if (!img || !img.src) {
+      console.log('Background: No img element found in closeup-image div');
+      return { error: 'No img element in closeup-image div' };
+    }
+    
+    console.log('Background: Found main image:', img.src);
+    return { 
+      imageUrl: getHighResImageUrl(img.src) 
+    };
+    
+  } catch (error) {
+    console.error('Background: Error fetching pin image:', error);
+    return { error: error.message };
+  }
+}
+
+function getHighResImageUrl(imageSrc) {
+  // Convert Pinterest image URLs to highest resolution
+  if (imageSrc.includes('pinimg.com')) {
+    // Replace size parameters with originals for best quality
+    return imageSrc
+      .replace(/\/\d+x\d+\//, '/originals/')
+      .replace(/\/\d+x\//, '/originals/')
+      .replace(/_\d+x\d+\./, '_originals.');
+  }
+  
+  return imageSrc;
+}
 
 async function handleDownloadImages(images) {
   const imagesByMonth = {};

@@ -126,13 +126,6 @@ class PinterestMessageParser {
   }
 
   async extractImageFromMessage(messageElement) {
-    // Look for images in the message
-    const img = messageElement.querySelector('img');
-    if (!img || !img.src) return null;
-
-    // Skip profile pictures and UI elements
-    if (this.isUIImage(img)) return null;
-
     // Look for the specific pin link format with sender and message info
     const pinLink = messageElement.querySelector('a[href*="/pin/"][href*="conversation_id"][href*="message"][href*="sender"]');
     if (!pinLink) {
@@ -147,8 +140,12 @@ class PinterestMessageParser {
       return null;
     }
 
-    // Get high-resolution image URL
-    const imageUrl = this.getHighResImageUrl(img.src);
+    // Get the main image URL by fetching the pin page
+    const imageUrl = await this.fetchMainImageFromPin(pinLink.href);
+    if (!imageUrl) {
+      console.log('Pinterest Downloader: Could not fetch main image from pin page');
+      return null;
+    }
 
     return {
       imageUrl,
@@ -160,22 +157,31 @@ class PinterestMessageParser {
     };
   }
 
-  isUIImage(img) {
-    const src = img.src.toLowerCase();
-    const classes = img.className.toLowerCase();
-    
-    // Skip profile pictures, avatars, icons, etc.
-    return (
-      src.includes('avatar') ||
-      src.includes('profile') ||
-      classes.includes('avatar') ||
-      classes.includes('profile') ||
-      img.width < 50 ||
-      img.height < 50
-    );
-  }
-
   extractLinkData(href) {
+
+  async fetchMainImageFromPin(pinUrl) {
+    try {
+      console.log('Pinterest Downloader: Requesting main image for:', pinUrl);
+      
+      // Send request to background script to fetch the pin page
+      const response = await chrome.runtime.sendMessage({
+        type: 'FETCH_PIN_IMAGE',
+        pinUrl: pinUrl
+      });
+      
+      if (response && response.imageUrl) {
+        console.log('Pinterest Downloader: Received main image URL:', response.imageUrl);
+        return response.imageUrl;
+      } else {
+        console.log('Pinterest Downloader: No image URL received from background');
+        return null;
+      }
+      
+    } catch (error) {
+      console.error('Pinterest Downloader: Error requesting main image:', error);
+      return null;
+    }
+  }
     try {
       // Parse URL to extract parameters
       const url = new URL(href, 'https://pinterest.com');
@@ -194,20 +200,6 @@ class PinterestMessageParser {
       console.error('Error parsing link data:', error);
       return null;
     }
-  }
-
-  getHighResImageUrl(imageSrc) {
-    // Convert Pinterest image URLs to highest resolution
-    if (imageSrc.includes('pinimg.com')) {
-      // Replace size parameters with originals for best quality
-      return imageSrc
-        .replace(/\/\d+x\d+\//, '/originals/')
-        .replace(/\/\d+x\//, '/originals/')
-        .replace(/_\d+x\d+\./, '_originals.');
-    }
-    
-    return imageSrc;
-  }
 }
 
 // Initialize the parser when the script loads
