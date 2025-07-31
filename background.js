@@ -95,11 +95,11 @@ class PinterestDownloader {
         filename: 'pinterest-messages/js/photoswipe.css'
       },
       {
-        url: 'https://cdn.jsdelivr.net/npm/photoswipe@5.4.2/dist/photoswipe.umd.min.js',
+        url: 'https://cdn.jsdelivr.net/npm/photoswipe@5.4.2/dist/umd/photoswipe.umd.min.js',
         filename: 'pinterest-messages/js/photoswipe.umd.min.js'
       },
       {
-        url: 'https://cdn.jsdelivr.net/npm/photoswipe@5.4.2/dist/photoswipe-lightbox.umd.min.js',
+        url: 'https://cdn.jsdelivr.net/npm/photoswipe@5.4.2/dist/umd/photoswipe-lightbox.umd.min.js',
         filename: 'pinterest-messages/js/photoswipe-lightbox.umd.min.js'
       }
     ];
