@@ -28,13 +28,14 @@ class PinterestMessageParser {
   }
 
   startObserving() {
-    // Look for Pinterest messages interface
+    // Look for Pinterest messages container
     this.findMessagesContainer();
     
     // Set up mutation observer to detect new messages
     this.observer = new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
         if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+          // Only scan automatically to identify new messages, don't download
           this.debounceProcessMessages();
         }
       });
@@ -45,7 +46,7 @@ class PinterestMessageParser {
       subtree: true
     });
 
-    // Initial scan
+    // Initial scan (no download)
     this.debounceProcessMessages();
   }
 
@@ -158,6 +159,25 @@ class PinterestMessageParser {
   }
 
   extractLinkData(href) {
+    try {
+      // Parse URL to extract parameters
+      const url = new URL(href, 'https://pinterest.com');
+      const pathMatch = url.pathname.match(/\/pin\/(\d+)/);
+      const searchParams = new URLSearchParams(url.search);
+      
+      if (!pathMatch) return null;
+      
+      return {
+        pinId: pathMatch[1],
+        conversationId: searchParams.get('conversation_id'),
+        messageId: searchParams.get('message'),
+        senderId: searchParams.get('sender')
+      };
+    } catch (error) {
+      console.error('Error parsing link data:', error);
+      return null;
+    }
+  }
 
   async fetchMainImageFromPin(pinUrl) {
     try {
@@ -182,24 +202,6 @@ class PinterestMessageParser {
       return null;
     }
   }
-    try {
-      // Parse URL to extract parameters
-      const url = new URL(href, 'https://pinterest.com');
-      const pathMatch = url.pathname.match(/\/pin\/(\d+)/);
-      const searchParams = new URLSearchParams(url.search);
-      
-      if (!pathMatch) return null;
-      
-      return {
-        pinId: pathMatch[1],
-        conversationId: searchParams.get('conversation_id'),
-        messageId: searchParams.get('message'),
-        senderId: searchParams.get('sender')
-      };
-    } catch (error) {
-      console.error('Error parsing link data:', error);
-      return null;
-    }
 }
 
 // Initialize the parser when the script loads
