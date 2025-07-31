@@ -15,10 +15,12 @@ A Chrome extension that automatically downloads images and links to videos from 
 - **Incremental Processing**: Remembers last processed message to avoid re-downloading
 - **Interactive HTML Gallery**: 
   - Generates monthly HTML files with thumbnail grid
+  - Includes ALL previously downloaded images, not just current session
   - Uses local file references for completely offline viewing
-  - Click images for full-screen lightbox viewing
+  - Click images for full-screen lightbox viewing with correct aspect ratios
   - Keyboard navigation (left/right arrows, ESC to close)
   - Video thumbnails with play button overlay
+  - Only regenerates HTML for months with new downloads
   - Automatically downloads PhotoSwipe library for offline viewing
 - **Throttling & Retry**: Handles rate limiting with intelligent backoff
 - **Progress Tracking**: Shows download counts and processing status
@@ -44,19 +46,19 @@ A Chrome extension that automatically downloads images and links to videos from 
 ```
 Downloads/
 └── pinterest-messages/
-    ├── pinterest_pins_2025_07_July.html
-    ├── pinterest_pins_2025_08_August.html
+    ├── pinterest_pins_2025_07.html
+    ├── pinterest_pins_2025_08.html
     ├── js/
     │   ├── photoswipe.css
     │   ├── photoswipe.umd.min.js
     │   └── photoswipe-lightbox.umd.min.js
     ├── from-{senderId1}/
-    │   ├── 2025-07-30 2208 John Doe 12345_pin_67890.jpg
-    │   ├── 2025-07-30 2210 John Doe video 12346_pin_67891.jpg
-    │   ├── 2025-07-30 2210 John Doe video 12346_pin_67891.html
+    │   ├── 2025-07-30 22:08 John Doe 12345_pin_67890.jpg
+    │   ├── 2025-07-30 22:10 John Doe video 12346_pin_67891.jpg
+    │   ├── 2025-07-30 22:10 John Doe video 12346_pin_67891.html
     │   └── ...
     └── from-{senderId2}/
-        ├── 2025-07-31 1430 Jane Smith 12347_pin_67892.jpg
+        ├── 2025-07-31 14:30 Jane Smith 12347_pin_67892.jpg
         └── ...
 ```
 

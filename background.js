@@ -6,18 +6,25 @@ class PinterestDownloader {
   }
 
   async initializeStorage() {
-    const result = await chrome.storage.local.get(['downloadedImages', 'lastProcessedMessageId']);
+    const result = await chrome.storage.local.get(['downloadedImages', 'lastProcessedMessageId', 'imageMetadata']);
     this.downloadedImages = new Set(result.downloadedImages || []);
     this.lastProcessedMessageId = result.lastProcessedMessageId || '';
+    this.imageMetadata = result.imageMetadata || {}; // Store full image metadata by imageId
   }
 
-  async saveProgress(imageId, messageId) {
+  async saveProgress(imageId, messageId, imageMetadata = null) {
     this.downloadedImages.add(imageId);
     this.lastProcessedMessageId = messageId;
     
+    // Store image metadata if provided
+    if (imageMetadata) {
+      this.imageMetadata[imageId] = imageMetadata;
+    }
+    
     await chrome.storage.local.set({
       downloadedImages: Array.from(this.downloadedImages),
-      lastProcessedMessageId: this.lastProcessedMessageId
+      lastProcessedMessageId: this.lastProcessedMessageId,
+      imageMetadata: this.imageMetadata
     });
   }
 
@@ -33,6 +40,20 @@ class PinterestDownloader {
   sanitizeUsername(username) {
     // Remove invalid filename characters and limit length
     return username.replace(/[<>:"/\\|?*]/g, '_').substring(0, 30);
+  }
+
+  formatTimestamp(timestamp) {
+    // Convert "YYYY-MM-DD HHMM" to "YYYY-MM-DD HH:MM"
+    if (timestamp && timestamp.includes(' ') && timestamp.length >= 13) {
+      const parts = timestamp.split(' ');
+      if (parts.length >= 2 && parts[1].length === 4) {
+        const time = parts[1];
+        const hours = time.substring(0, 2);
+        const minutes = time.substring(2, 4);
+        return parts[0] + ' ' + hours + ':' + minutes;
+      }
+    }
+    return timestamp; // Return as-is if format doesn't match
   }
 
   getImageExtension(url) {
@@ -122,7 +143,7 @@ class PinterestDownloader {
     await this.ensurePhotosSwipeFiles();
     
     const monthName = new Date(year, month - 1).toLocaleString('default', { month: 'long' });
-    const filename = `pinterest-messages/pinterest_pins_${year}_${month.toString().padStart(2, '0')}_${monthName}.html`;
+    const filename = `pinterest-messages/pinterest_pins_${year}_${month.toString().padStart(2, '0')}.html`;
     
     const html = this.generateHtmlContent(images, year, month);
     
@@ -199,8 +220,7 @@ class PinterestDownloader {
             margin-left: 4px;
         }
         .pin-info { padding: 15px; }
-        .pin-sender { font-weight: bold; color: #e60023; margin-bottom: 5px; }
-        .pin-date { color: #666; font-size: 0.9em; margin-bottom: 10px; }
+        .pin-sender { font-weight: bold; color: #333; margin-bottom: 10px; font-size: 0.95em; }
         .pin-link { 
             color: #0073e6; 
             text-decoration: none; 
@@ -249,10 +269,7 @@ class PinterestDownloader {
                     ` : ''}
                 </a>
                 <div class="pin-info">
-                    <div class="pin-sender">From: Sender ${img.senderId}</div>
-                    <div class="pin-date">Message: ${img.messageId}</div>
-                    ${img.timestamp ? `<div class="pin-date">Time: ${img.timestamp}</div>` : ''}
-                    ${img.username ? `<div class="pin-date">User: ${img.username}</div>` : ''}
+                    <div class="pin-sender">${img.username || `Sender ${img.senderId}`}${img.timestamp ? ` @ ${this.formatTimestamp(img.timestamp)}` : ''}</div>
                     ${img.pinUrl ? `<a href="${img.pinUrl}" target="_blank" class="pin-link">View Original Pin</a>` : ''}
                 </div>
             </div>
@@ -279,10 +296,10 @@ class PinterestDownloader {
             showHideAnimationType: 'zoom',
             // Enable scrolling for large images
             wheelToZoom: true,
-            // Configure zoom behavior
+            // Configure zoom behavior to respect aspect ratios
             initialZoomLevel: 'fit',
-            secondaryZoomLevel: 1.0, // 100% zoom level
-            maxZoomLevel: 2.0,
+            secondaryZoomLevel: 1.5,
+            maxZoomLevel: 3.0,
         });
         
         // Customize lightbox behavior
@@ -296,8 +313,16 @@ class PinterestDownloader {
                 onInit: (el, pswp) => {
                     lightbox.pswp.on('change', () => {
                         const currSlideElement = lightbox.pswp.currSlide.data.element;
-                        const caption = currSlideElement.closest('.pin-card').querySelector('.pin-info').innerHTML;
-                        el.innerHTML = '<div style="position: absolute; bottom: 20px; left: 20px; right: 20px; background: rgba(0,0,0,0.7); color: white; padding: 15px; border-radius: 8px; font-size: 14px;">' + caption + '</div>';
+                        const pinCard = currSlideElement.closest('.pin-card');
+                        const senderInfo = pinCard.querySelector('.pin-sender').textContent;
+                        const pinLink = pinCard.querySelector('.pin-link');
+                        
+                        let captionHTML = '<div>' + senderInfo + '</div>';
+                        if (pinLink) {
+                            captionHTML += '<div style="margin-top: 8px;"><a href="' + pinLink.href + '" target="_blank" style="color: #4dabf7; text-decoration: none;">View Original Pin</a></div>';
+                        }
+                        
+                        el.innerHTML = '<div style="position: absolute; bottom: 20px; left: 20px; right: 20px; background: rgba(0,0,0,0.7); color: white; padding: 15px; border-radius: 8px; font-size: 14px;">' + captionHTML + '</div>';
                     });
                 }
             });
@@ -318,22 +343,30 @@ class PinterestDownloader {
             }
         }
         
-        // Add custom zoom behavior for better image viewing
-        lightbox.on('beforeOpen', () => {
-            lightbox.pswp.on('change', () => {
-                const slide = lightbox.pswp.currSlide;
-                if (slide && slide.data) {
-                    // If image would be scaled down to fit, allow clicking to view at 100%
-                    const fitZoom = slide.zoomLevels.fit;
-                    if (fitZoom < 1.0) {
-                        // Image is larger than viewport, clicking will zoom to 100%
-                        slide.zoomLevels.secondary = 1.0;
-                    } else {
-                        // Image fits in viewport, clicking will zoom in further
-                        slide.zoomLevels.secondary = Math.min(2.0, fitZoom * 2);
-                    }
-                }
-            });
+        // Ensure proper image dimensions are set for PhotoSwipe
+        lightbox.on('itemData', (e) => {
+            const { itemData } = e;
+            
+            // If dimensions aren't set, we need to load the image to get them
+            if (!itemData.width || !itemData.height) {
+                return new Promise((resolve) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        itemData.width = img.naturalWidth;
+                        itemData.height = img.naturalHeight;
+                        resolve(itemData);
+                    };
+                    img.onerror = () => {
+                        // Fallback dimensions if image fails to load
+                        itemData.width = 800;
+                        itemData.height = 600;
+                        resolve(itemData);
+                    };
+                    img.src = itemData.src;
+                });
+            }
+            
+            return itemData;
         });
 
         lightbox.init();
@@ -387,6 +420,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Clear in-memory state
     downloader.downloadedImages.clear();
     downloader.lastProcessedMessageId = '';
+    downloader.imageMetadata = {};
     
     const clearMsg = 'Background: Cleared all download history and state';
     console.log(clearMsg);
@@ -688,7 +722,25 @@ async function handleDownloadImages(images, tabId = null) {
   const startMsg = `Background: Processing ${totalFound} pins`;
   console.log(startMsg);
   if (tabId) logToContentScript(tabId, startMsg);
-  const imagesByMonth = {};
+  
+  // Track which months had new downloads for HTML generation
+  const monthsWithNewDownloads = new Set();
+  
+  // Load all existing image metadata for gallery generation
+  const allImagesByMonth = {};
+  
+  // First, populate with all existing downloaded images
+  Object.values(downloader.imageMetadata).forEach(imgMeta => {
+    if (imgMeta.downloadDate) {
+      const date = new Date(imgMeta.downloadDate);
+      const monthKey = `${date.getFullYear()}-${date.getMonth() + 1}`;
+      
+      if (!allImagesByMonth[monthKey]) {
+        allImagesByMonth[monthKey] = [];
+      }
+      allImagesByMonth[monthKey].push(imgMeta);
+    }
+  });
   
   // Add pin numbers to images
   images.forEach((img, index) => {
@@ -728,20 +780,26 @@ async function handleDownloadImages(images, tabId = null) {
         await downloader.createVideoRedirectHtml(img.pinUrl, filename);
       }
 
-      // Group by month for HTML generation
-      const date = new Date();
-      const monthKey = `${date.getFullYear()}-${date.getMonth() + 1}`;
+      // Create metadata for this image
+      const downloadDate = new Date();
+      const monthKey = `${downloadDate.getFullYear()}-${downloadDate.getMonth() + 1}`;
+      monthsWithNewDownloads.add(monthKey);
       
-      if (!imagesByMonth[monthKey]) {
-        imagesByMonth[monthKey] = [];
+      const imageMetadata = {
+        ...img,
+        filename: filename,
+        downloadDate: downloadDate.toISOString(),
+        imageId: imageId
+      };
+      
+      // Add to current month in allImagesByMonth
+      if (!allImagesByMonth[monthKey]) {
+        allImagesByMonth[monthKey] = [];
       }
-      
-      // Add filename to image object for HTML generation
-      const imgWithFilename = { ...img, filename: filename };
-      imagesByMonth[monthKey].push(imgWithFilename);
+      allImagesByMonth[monthKey].push(imageMetadata);
 
-      // Save progress
-      await downloader.saveProgress(imageId, img.messageId);
+      // Save progress with metadata
+      await downloader.saveProgress(imageId, img.messageId, imageMetadata);
       
       // Reduce delay on success (speed up)
       currentDelay = Math.max(100, currentDelay * 0.8);
@@ -772,9 +830,15 @@ async function handleDownloadImages(images, tabId = null) {
   console.log(summaryMsg);
   if (tabId) logToContentScript(tabId, summaryMsg);
 
-  // Generate monthly HTML files
-  for (const [monthKey, monthImages] of Object.entries(imagesByMonth)) {
-    const [year, month] = monthKey.split('-').map(Number);
-    await downloader.saveMonthlyHtml(monthImages, year, month);
+  // Generate HTML files only for months that had new downloads
+  for (const monthKey of monthsWithNewDownloads) {
+    const monthImages = allImagesByMonth[monthKey] || [];
+    if (monthImages.length > 0) {
+      const [year, month] = monthKey.split('-').map(Number);
+      const htmlMsg = `Background: Generating HTML gallery for ${year}-${month} with ${monthImages.length} images`;
+      console.log(htmlMsg);
+      if (tabId) logToContentScript(tabId, htmlMsg);
+      await downloader.saveMonthlyHtml(monthImages, year, month);
+    }
   }
 }
