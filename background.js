@@ -168,6 +168,8 @@ class PinterestDownloader {
         .pin-image-container { 
             position: relative; 
             cursor: pointer;
+            display: block;
+            text-decoration: none;
         }
         .pin-image { width: 100%; height: 200px; object-fit: cover; }
         .video-overlay {
@@ -237,7 +239,7 @@ class PinterestDownloader {
           
           return `
             <div class="pin-card">
-                <div class="pin-image-container" ${!isVideo ? `data-pswp-width="800" data-pswp-height="600" data-pswp-src="${imageSrc}"` : ''}>
+                <a href="${imageSrc}" class="pin-image-container" ${!isVideo ? `data-pswp-width="800" data-pswp-height="600"` : 'onclick="return false;"'} target="_blank">
                     <img src="${imageSrc}" alt="Pinterest Pin" class="pin-image" loading="lazy">
                     ${isVideo ? `
                         <div class="video-badge">VIDEO</div>
@@ -245,7 +247,7 @@ class PinterestDownloader {
                             <div class="play-icon"></div>
                         </div>
                     ` : ''}
-                </div>
+                </a>
                 <div class="pin-info">
                     <div class="pin-sender">From: Sender ${img.senderId}</div>
                     <div class="pin-date">Message: ${img.messageId}</div>
@@ -266,7 +268,7 @@ class PinterestDownloader {
         // Initialize PhotoSwipe Lightbox for images only (not videos)
         const lightbox = new PhotoSwipeLightbox({
             gallery: '#gallery',
-            children: '.pin-image-container:not([onclick])', // Exclude video containers
+            children: 'a.pin-image-container:not([onclick])', // Only anchor tags that are not videos
             pswpModule: PhotoSwipe,
             padding: { top: 20, bottom: 20, left: 20, right: 20 },
             bgOpacity: 0.9,
@@ -318,13 +320,7 @@ class PinterestDownloader {
             }
         }
         
-        // Add click handlers for image containers (non-video only)
-        document.querySelectorAll('.pin-image-container:not([onclick])').forEach((container, index) => {
-            container.addEventListener('click', (e) => {
-                e.preventDefault();
-                lightbox.loadAndOpen(index);
-            });
-        });
+        // PhotoSwipe automatically handles clicks on anchor tags, no manual handlers needed
     </script>
 </body>
 </html>`;
