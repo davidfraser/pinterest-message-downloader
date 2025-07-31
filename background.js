@@ -72,20 +72,18 @@ class PinterestDownloader {
 </body>
 </html>`;
 
-    const blob = new Blob([htmlContent], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
+    // Convert HTML string to data URL (works in service workers)
+    const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(htmlContent);
     
     try {
       const htmlFilename = filename.replace(/\.[^.]+$/, '.html');
       await chrome.downloads.download({
-        url: url,
+        url: dataUrl,
         filename: htmlFilename,
         conflictAction: 'uniquify'
       });
-      URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Failed to create HTML redirect:', error);
-      URL.revokeObjectURL(url);
     }
   }
 
@@ -94,19 +92,18 @@ class PinterestDownloader {
     const filename = `pinterest_pins_${year}_${month.toString().padStart(2, '0')}_${monthName}.html`;
     
     const html = this.generateHtmlContent(images, year, month);
-    const blob = new Blob([html], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
+    
+    // Convert HTML string to data URL (works in service workers)
+    const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
     
     try {
       await chrome.downloads.download({
-        url: url,
+        url: dataUrl,
         filename: filename,
         conflictAction: 'overwrite'
       });
-      URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Failed to save HTML:', error);
-      URL.revokeObjectURL(url);
     }
   }
 
