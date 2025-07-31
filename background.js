@@ -139,8 +139,7 @@ class PinterestDownloader {
   }
 
   async saveMonthlyHtml(images, year, month, tabId = null) {
-    // Ensure PhotoSwipe files are downloaded first
-    await this.ensurePhotosSwipeFiles();
+    // No external dependencies needed for custom lightbox
     
     const monthName = new Date(year, month - 1).toLocaleString('default', { month: 'long' });
     const filename = `pinterest-messages/pinterest_pins_${year}_${month.toString().padStart(2, '0')}.html`;
@@ -185,8 +184,7 @@ class PinterestDownloader {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pinterest Pins - ${monthName} ${year}</title>
     
-    <!-- PhotoSwipe CSS -->
-    <link rel="stylesheet" href="js/photoswipe.css">
+    <!-- Custom Lightbox CSS -->
     
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
@@ -254,6 +252,77 @@ class PinterestDownloader {
             font-size: 12px;
             font-weight: bold;
         }
+        
+        /* Custom Lightbox Styles */
+        .custom-lightbox {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 10000;
+            justify-content: center;
+            align-items: center;
+        }
+        .custom-lightbox.active {
+            display: flex;
+        }
+        .lightbox-content {
+            position: relative;
+            max-width: 100%;
+            max-height: 100%;
+            overflow: auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .lightbox-image {
+            max-width: none !important;
+            max-height: none !important;
+            width: auto !important;
+            height: auto !important;
+            display: block;
+        }
+        .lightbox-nav {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(0,0,0,0.7);
+            color: white;
+            border: none;
+            padding: 20px 15px;
+            cursor: pointer;
+            font-size: 18px;
+            z-index: 10001;
+        }
+        .lightbox-prev { left: 20px; }
+        .lightbox-next { right: 20px; }
+        .lightbox-close {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            cursor: pointer;
+            font-size: 20px;
+            z-index: 10001;
+        }
+        .lightbox-caption {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 10001;
+        }
     </style>
 </head>
 <body>
@@ -291,115 +360,121 @@ class PinterestDownloader {
         }).join('')}
     </div>
 
-    <!-- PhotoSwipe JS -->
-    <script src="js/photoswipe.umd.min.js"></script>
-    <script src="js/photoswipe-lightbox.umd.min.js"></script>
+    <!-- Custom Lightbox HTML -->
+    <div class="custom-lightbox" id="lightbox">
+        <div class="lightbox-content">
+            <img class="lightbox-image" id="lightbox-image" src="" alt="">
+            <button class="lightbox-nav lightbox-prev" id="lightbox-prev">‹</button>
+            <button class="lightbox-nav lightbox-next" id="lightbox-next">›</button>
+            <button class="lightbox-close" id="lightbox-close">×</button>
+            <div class="lightbox-caption" id="lightbox-caption"></div>
+        </div>
+    </div>
     
     <script>
-        // Initialize PhotoSwipe Lightbox for images only (not videos)
-        const lightbox = new PhotoSwipeLightbox({
-            gallery: '#gallery',
-            children: 'a.pin-image-container:not([onclick])', // Only anchor tags that are not videos
-            pswpModule: PhotoSwipe,
-            padding: { top: 20, bottom: 20, left: 20, right: 20 },
-            bgOpacity: 0.9,
-            loop: true,
-            zoom: true,
-            preload: [1, 1], // Preload 1 image before and after current
-            // Let PhotoSwipe determine image dimensions dynamically
-            showHideAnimationType: 'zoom',
-            // Enable scrolling for large images
-            wheelToZoom: true,
-            // Configure zoom behavior to respect aspect ratios
-            initialZoomLevel: 'fit',
-            secondaryZoomLevel: 1.5,
-            maxZoomLevel: 3.0,
-        });
+        // Custom Lightbox Implementation
+        const lightbox = document.getElementById('lightbox');
+        const lightboxImage = document.getElementById('lightbox-image');
+        const lightboxCaption = document.getElementById('lightbox-caption');
+        const prevBtn = document.getElementById('lightbox-prev');
+        const nextBtn = document.getElementById('lightbox-next');
+        const closeBtn = document.getElementById('lightbox-close');
         
-        // Customize lightbox behavior
-        lightbox.on('uiRegister', function() {
-            lightbox.pswp.ui.registerElement({
-                name: 'custom-caption',
-                order: 9,
-                isButton: false,
-                appendTo: 'root',
-                html: '',
-                onInit: (el, pswp) => {
-                    lightbox.pswp.on('change', () => {
-                        const currSlideElement = lightbox.pswp.currSlide.data.element;
-                        const pinCard = currSlideElement.closest('.pin-card');
-                        const senderInfo = pinCard.querySelector('.pin-sender').textContent;
-                        const pinLink = pinCard.querySelector('.pin-link');
-                        
-                        let captionHTML = '<div>' + senderInfo + '</div>';
-                        if (pinLink) {
-                            captionHTML += '<div style="margin-top: 8px;"><a href="' + pinLink.href + '" target="_blank" style="color: #4dabf7; text-decoration: none;">View Original Pin</a></div>';
-                        }
-                        
-                        el.innerHTML = '<div style="position: absolute; bottom: 20px; left: 20px; right: 20px; background: rgba(0,0,0,0.7); color: white; padding: 15px; border-radius: 8px; font-size: 14px;">' + captionHTML + '</div>';
-                    });
-                }
+        let currentImageIndex = 0;
+        let imageElements = [];
+        
+        // Collect all image containers (non-video)
+        function initializeLightbox() {
+            imageElements = Array.from(document.querySelectorAll('a.pin-image-container:not([onclick])'));
+            
+            imageElements.forEach((element, index) => {
+                element.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    openLightbox(index);
+                });
             });
-        });
-        
-        // Add keyboard navigation improvements
-        lightbox.on('beforeOpen', () => {
-            document.addEventListener('keydown', handleKeydown);
-        });
-        
-        lightbox.on('destroy', () => {
-            document.removeEventListener('keydown', handleKeydown);
-        });
-        
-        function handleKeydown(e) {
-            if (e.key === 'Escape') {
-                lightbox.pswp.close();
-            }
         }
         
-        // Ensure proper image dimensions are set for PhotoSwipe
-        lightbox.on('itemData', (e) => {
-            const { itemData } = e;
+        function openLightbox(index) {
+            currentImageIndex = index;
+            const imageContainer = imageElements[index];
+            const imageSrc = imageContainer.href;
+            const pinCard = imageContainer.closest('.pin-card');
             
-            // Always load image to get true dimensions, don't rely on data attributes
-            return new Promise((resolve) => {
-                const img = new Image();
-                img.onload = () => {
-                    // Use actual image dimensions for perfect aspect ratio
-                    itemData.width = img.naturalWidth;
-                    itemData.height = img.naturalHeight;
-                    console.log('PhotoSwipe: Loaded image dimensions', img.naturalWidth + 'x' + img.naturalHeight, 'for', itemData.src);
-                    resolve(itemData);
-                };
-                img.onerror = () => {
-                    // Try to get dimensions from the thumbnail img element as fallback
-                    const thumbnailImg = document.querySelector('img[src="' + itemData.src + '"]');
-                    if (thumbnailImg) {
-                        itemData.width = thumbnailImg.naturalWidth || 800;
-                        itemData.height = thumbnailImg.naturalHeight || 600;
-                    } else {
-                        // Final fallback dimensions
-                        itemData.width = 800;
-                        itemData.height = 600;
-                    }
-                    console.log('PhotoSwipe: Using fallback dimensions', itemData.width + 'x' + itemData.height, 'for', itemData.src);
-                    resolve(itemData);
-                };
-                img.src = itemData.src;
-            });
+            // Set image source
+            lightboxImage.src = imageSrc;
+            lightboxImage.onload = () => {
+                console.log('Custom Lightbox: Image loaded at natural size:', lightboxImage.naturalWidth + 'x' + lightboxImage.naturalHeight);
+            };
+            
+            // Set caption
+            const senderInfo = pinCard.querySelector('.pin-sender').textContent;
+            const pinLink = pinCard.querySelector('.pin-link');
+            
+            let captionHTML = '<div>' + senderInfo + '</div>';
+            if (pinLink) {
+                captionHTML += '<div style="margin-top: 8px;"><a href="' + pinLink.href + '" target="_blank" style="color: #4dabf7; text-decoration: none;">View Original Pin</a></div>';
+            }
+            lightboxCaption.innerHTML = captionHTML;
+            
+            // Show lightbox
+            lightbox.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+        
+        function closeLightbox() {
+            lightbox.classList.remove('active');
+            document.body.style.overflow = '';
+        }
+        
+        function showPrevImage() {
+            currentImageIndex = (currentImageIndex - 1 + imageElements.length) % imageElements.length;
+            openLightbox(currentImageIndex);
+        }
+        
+        function showNextImage() {
+            currentImageIndex = (currentImageIndex + 1) % imageElements.length;
+            openLightbox(currentImageIndex);
+        }
+        
+        // Event listeners
+        closeBtn.addEventListener('click', closeLightbox);
+        prevBtn.addEventListener('click', showPrevImage);
+        nextBtn.addEventListener('click', showNextImage);
+        
+        // Close on background click
+        lightbox.addEventListener('click', (e) => {
+            if (e.target === lightbox) {
+                closeLightbox();
+            }
         });
-
-        lightbox.init();
+        
+        // Keyboard navigation
+        document.addEventListener('keydown', (e) => {
+            if (!lightbox.classList.contains('active')) return;
+            
+            switch(e.key) {
+                case 'Escape':
+                    closeLightbox();
+                    break;
+                case 'ArrowLeft':
+                    showPrevImage();
+                    break;
+                case 'ArrowRight':
+                    showNextImage();
+                    break;
+            }
+        });
         
         // Function to handle video redirect
         function openVideoRedirect(filename) {
             if (filename && filename !== '#') {
-                // Try to open the HTML redirect file in same directory
                 window.open(filename, '_blank');
             }
         }
         
-        // PhotoSwipe automatically handles clicks on anchor tags, no manual handlers needed
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', initializeLightbox);
     </script>
 </body>
 </html>`;
