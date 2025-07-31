@@ -7,12 +7,18 @@ A Chrome extension that automatically downloads images and links to videos from 
 - **Automatic Image Download**: Downloads all images sent in Pinterest messages
 - **Video Support**: Detects Pinterest video pins and downloads poster images with HTML redirects to original videos
 - **Smart Organization**: 
-  - Creates folders per sender: `Pinterest-messages-from-{senderId}`
+  - Organizes all downloads in `pinterest-messages/` directory
+  - Creates subfolders per sender: `from-{senderId}`
   - Timestamps files with ISO format: `YYYY-MM-DD HHMM`
   - Includes sender usernames in filenames
   - Adds message and pin IDs for unique identification
 - **Incremental Processing**: Remembers last processed message to avoid re-downloading
-- **Monthly HTML Reports**: Generates HTML files showing all downloaded pins with links back to originals
+- **Interactive HTML Gallery**: 
+  - Generates monthly HTML files with thumbnail grid
+  - Click images for full-screen lightbox viewing
+  - Keyboard navigation (left/right arrows, ESC to close)
+  - Video thumbnails with play button overlay
+  - Automatically downloads PhotoSwipe library for offline viewing
 - **Throttling & Retry**: Handles rate limiting with intelligent backoff
 - **Progress Tracking**: Shows download counts and processing status
 
@@ -36,13 +42,21 @@ A Chrome extension that automatically downloads images and links to videos from 
 
 ```
 Downloads/
-├── Pinterest-messages-from-{senderId}/
-│   ├── 2025-07-30 2208 John Doe 12345_pin_67890.jpg
-│   ├── 2025-07-30 2210 John Doe video 12346_pin_67891.jpg
-│   ├── 2025-07-30 2210 John Doe video 12346_pin_67891.html
-│   └── ...
-├── pinterest_pins_2025_07_July.html
-└── pinterest_pins_2025_08_August.html
+└── pinterest-messages/
+    ├── pinterest_pins_2025_07_July.html
+    ├── pinterest_pins_2025_08_August.html
+    ├── js/
+    │   ├── photoswipe.css
+    │   ├── photoswipe.umd.min.js
+    │   └── photoswipe-lightbox.umd.min.js
+    ├── from-{senderId1}/
+    │   ├── 2025-07-30 2208 John Doe 12345_pin_67890.jpg
+    │   ├── 2025-07-30 2210 John Doe video 12346_pin_67891.jpg
+    │   ├── 2025-07-30 2210 John Doe video 12346_pin_67891.html
+    │   └── ...
+    └── from-{senderId2}/
+        ├── 2025-07-31 1430 Jane Smith 12347_pin_67892.jpg
+        └── ...
 ```
 
 ### Filename Format

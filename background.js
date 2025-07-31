@@ -27,7 +27,7 @@ class PinterestDownloader {
     const timestampPrefix = timestamp ? `${timestamp} ` : '';
     const videoPrefix = isVideo ? 'video ' : '';
     const usernamePrefix = username ? `${this.sanitizeUsername(username)} ` : '';
-    return `Pinterest-messages-from-${senderId}/${timestampPrefix}${usernamePrefix}${videoPrefix}${messageId}_${identifier}${extension}`;
+    return `pinterest-messages/from-${senderId}/${timestampPrefix}${usernamePrefix}${videoPrefix}${messageId}_${identifier}${extension}`;
   }
 
   sanitizeUsername(username) {
@@ -87,9 +87,42 @@ class PinterestDownloader {
     }
   }
 
+  async ensurePhotosSwipeFiles() {
+    // Download PhotoSwipe files if they don't exist
+    const files = [
+      {
+        url: 'https://cdn.jsdelivr.net/npm/photoswipe@5.4.2/dist/photoswipe.css',
+        filename: 'pinterest-messages/js/photoswipe.css'
+      },
+      {
+        url: 'https://cdn.jsdelivr.net/npm/photoswipe@5.4.2/dist/photoswipe.umd.min.js',
+        filename: 'pinterest-messages/js/photoswipe.umd.min.js'
+      },
+      {
+        url: 'https://cdn.jsdelivr.net/npm/photoswipe@5.4.2/dist/photoswipe-lightbox.umd.min.js',
+        filename: 'pinterest-messages/js/photoswipe-lightbox.umd.min.js'
+      }
+    ];
+
+    for (const file of files) {
+      try {
+        await chrome.downloads.download({
+          url: file.url,
+          filename: file.filename,
+          conflictAction: 'overwrite'
+        });
+      } catch (error) {
+        console.log(`PhotoSwipe file ${file.filename} download skipped (may already exist):`, error.message);
+      }
+    }
+  }
+
   async saveMonthlyHtml(images, year, month) {
+    // Ensure PhotoSwipe files are downloaded first
+    await this.ensurePhotosSwipeFiles();
+    
     const monthName = new Date(year, month - 1).toLocaleString('default', { month: 'long' });
-    const filename = `pinterest_pins_${year}_${month.toString().padStart(2, '0')}_${monthName}.html`;
+    const filename = `pinterest-messages/pinterest_pins_${year}_${month.toString().padStart(2, '0')}_${monthName}.html`;
     
     const html = this.generateHtmlContent(images, year, month);
     
@@ -116,6 +149,10 @@ class PinterestDownloader {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pinterest Pins - ${monthName} ${year}</title>
+    
+    <!-- PhotoSwipe CSS -->
+    <link rel="stylesheet" href="js/photoswipe.css">
+    
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
         .header { text-align: center; margin-bottom: 30px; }
@@ -128,7 +165,37 @@ class PinterestDownloader {
             transition: transform 0.2s;
         }
         .pin-card:hover { transform: translateY(-2px); }
+        .pin-image-container { 
+            position: relative; 
+            cursor: pointer;
+        }
         .pin-image { width: 100%; height: 200px; object-fit: cover; }
+        .video-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 60px;
+            height: 60px;
+            background: rgba(0,0,0,0.7);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+        .video-overlay:hover {
+            background: rgba(0,0,0,0.9);
+            transform: translate(-50%, -50%) scale(1.1);
+        }
+        .play-icon {
+            width: 0;
+            height: 0;
+            border-left: 18px solid white;
+            border-top: 12px solid transparent;
+            border-bottom: 12px solid transparent;
+            margin-left: 4px;
+        }
         .pin-info { padding: 15px; }
         .pin-sender { font-weight: bold; color: #e60023; margin-bottom: 5px; }
         .pin-date { color: #666; font-size: 0.9em; margin-bottom: 10px; }
@@ -140,25 +207,121 @@ class PinterestDownloader {
             margin-top: 5px;
         }
         .pin-link:hover { text-decoration: underline; }
+        .video-badge {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
     <div class="header">
         <h1>Pinterest Pins - ${monthName} ${year}</h1>
-        <p>Downloaded images and pin links from Pinterest messages</p>
+        <p>Downloaded images and pin links from Pinterest messages. Click images to view full size.</p>
     </div>
-    <div class="pin-grid">
-        ${images.map(img => `
+    
+    <div class="pin-grid" id="gallery">
+        ${images.map((img, index) => {
+          const isVideo = img.isVideo || (img.filename && img.filename.includes(' video '));
+          const videoRedirectFile = isVideo && img.filename ? img.filename.replace(/\.[^.]+$/, '.html').replace(/^pinterest-messages\//, '') : null;
+          
+          return `
             <div class="pin-card">
-                <img src="${img.imageUrl}" alt="Pinterest Pin" class="pin-image" loading="lazy">
+                <div class="pin-image-container" ${!isVideo ? `data-pswp-width="800" data-pswp-height="600" data-pswp-src="${img.imageUrl}"` : ''}>
+                    <img src="${img.imageUrl}" alt="Pinterest Pin" class="pin-image" loading="lazy">
+                    ${isVideo ? `
+                        <div class="video-badge">VIDEO</div>
+                        <div class="video-overlay" onclick="openVideoRedirect('${videoRedirectFile || '#'}')">
+                            <div class="play-icon"></div>
+                        </div>
+                    ` : ''}
+                </div>
                 <div class="pin-info">
                     <div class="pin-sender">From: Sender ${img.senderId}</div>
                     <div class="pin-date">Message: ${img.messageId}</div>
+                    ${img.timestamp ? `<div class="pin-date">Time: ${img.timestamp}</div>` : ''}
+                    ${img.username ? `<div class="pin-date">User: ${img.username}</div>` : ''}
                     ${img.pinUrl ? `<a href="${img.pinUrl}" target="_blank" class="pin-link">View Original Pin</a>` : ''}
                 </div>
             </div>
-        `).join('')}
+          `;
+        }).join('')}
     </div>
+
+    <!-- PhotoSwipe JS -->
+    <script src="js/photoswipe.umd.min.js"></script>
+    <script src="js/photoswipe-lightbox.umd.min.js"></script>
+    
+    <script>
+        // Initialize PhotoSwipe Lightbox for images only (not videos)
+        const lightbox = new PhotoSwipeLightbox({
+            gallery: '#gallery',
+            children: '.pin-image-container:not([onclick])', // Exclude video containers
+            pswpModule: PhotoSwipe,
+            padding: { top: 20, bottom: 20, left: 20, right: 20 },
+            bgOpacity: 0.9,
+            loop: true,
+            zoom: true,
+            preload: [1, 1], // Preload 1 image before and after current
+        });
+        
+        // Customize lightbox behavior
+        lightbox.on('uiRegister', function() {
+            lightbox.pswp.ui.registerElement({
+                name: 'custom-caption',
+                order: 9,
+                isButton: false,
+                appendTo: 'root',
+                html: '',
+                onInit: (el, pswp) => {
+                    lightbox.pswp.on('change', () => {
+                        const currSlideElement = lightbox.pswp.currSlide.data.element;
+                        const caption = currSlideElement.closest('.pin-card').querySelector('.pin-info').innerHTML;
+                        el.innerHTML = '<div style="position: absolute; bottom: 20px; left: 20px; right: 20px; background: rgba(0,0,0,0.7); color: white; padding: 15px; border-radius: 8px; font-size: 14px;">' + caption + '</div>';
+                    });
+                }
+            });
+        });
+        
+        // Add keyboard navigation improvements
+        lightbox.on('beforeOpen', () => {
+            document.addEventListener('keydown', handleKeydown);
+        });
+        
+        lightbox.on('destroy', () => {
+            document.removeEventListener('keydown', handleKeydown);
+        });
+        
+        function handleKeydown(e) {
+            if (e.key === 'Escape') {
+                lightbox.pswp.close();
+            }
+        }
+        
+        lightbox.init();
+        
+        // Function to handle video redirect
+        function openVideoRedirect(filename) {
+            if (filename && filename !== '#') {
+                // Try to open the HTML redirect file in same directory
+                window.open(filename, '_blank');
+            }
+        }
+        
+        // Add click handlers for image containers (non-video only)
+        document.querySelectorAll('.pin-image-container:not([onclick])').forEach((container, index) => {
+            container.addEventListener('click', (e) => {
+                e.preventDefault();
+                lightbox.loadAndOpen(index);
+            });
+        });
+    </script>
 </body>
 </html>`;
   }
