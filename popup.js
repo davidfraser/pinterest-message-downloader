@@ -105,11 +105,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Clear button handler
   clearButton.addEventListener('click', async () => {
-    if (confirm('Clear all download history? This will not delete downloaded files.')) {
-      await chrome.storage.local.clear();
-      downloadCount.textContent = '0';
-      lastScan.textContent = 'Never';
-    }
+    await chrome.storage.local.clear();
+    
+    // Notify background script to clear its state
+    await chrome.runtime.sendMessage({ type: 'CLEAR_STORAGE' });
+    
+    downloadCount.textContent = '0';
+    lastScan.textContent = 'Never';
   });
 
   async function loadStats() {

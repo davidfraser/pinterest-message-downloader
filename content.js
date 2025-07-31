@@ -57,19 +57,37 @@ class PinterestMessageParser {
       // For each image that needs fetching, get the actual image URL
       const processedImages = [];
       
-      for (const img of results.images) {
+      // Separate videos and images for processing
+      const videos = results.images.filter(img => img.isVideo);
+      const images = results.images.filter(img => !img.isVideo);
+      
+      // Process videos immediately (no background fetching needed)
+      for (const video of videos) {
+        processedImages.push({
+          ...video,
+          imageUrl: video.posterUrl
+        });
+      }
+      
+      // Process images with parallel fetching
+      const imagePromises = images.map(async (img) => {
         if (img.needsImageFetch) {
           const imageUrl = await this.fetchMainImageFromPin(img.pinUrl);
           if (imageUrl) {
-            processedImages.push({
+            return {
               ...img,
               imageUrl: imageUrl
-            });
+            };
           }
         } else {
-          processedImages.push(img);
+          return img;
         }
-      }
+        return null;
+      });
+      
+      const fetchedImages = await Promise.all(imagePromises);
+      const validImages = fetchedImages.filter(img => img !== null);
+      processedImages.push(...validImages);
 
       if (processedImages.length > 0) {
         await chrome.runtime.sendMessage({
@@ -94,7 +112,6 @@ class PinterestMessageParser {
         pinUrl: pinUrl
       });
       
-      console.log('Pinterest Downloader: Background response:', response);
       
       if (response && response.imageUrl) {
         console.log('Pinterest Downloader: Received main image URL:', response.imageUrl);

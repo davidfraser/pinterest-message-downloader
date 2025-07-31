@@ -21,10 +21,18 @@ class PinterestDownloader {
     });
   }
 
-  generateFilename(imageUrl, senderId, messageId, pinId) {
+  generateFilename(imageUrl, senderId, messageId, pinId, timestamp, isVideo = false, username = null) {
     const extension = this.getImageExtension(imageUrl);
     const identifier = pinId ? `pin_${pinId}` : `msg_${messageId}`;
-    return `sender_${senderId}/${messageId}_${identifier}${extension}`;
+    const timestampPrefix = timestamp ? `${timestamp} ` : '';
+    const videoPrefix = isVideo ? 'video ' : '';
+    const usernamePrefix = username ? `${this.sanitizeUsername(username)} ` : '';
+    return `Pinterest-messages-from-${senderId}/${timestampPrefix}${usernamePrefix}${videoPrefix}${messageId}_${identifier}${extension}`;
+  }
+
+  sanitizeUsername(username) {
+    // Remove invalid filename characters and limit length
+    return username.replace(/[<>:"/\\|?*]/g, '_').substring(0, 30);
   }
 
   getImageExtension(url) {
@@ -43,6 +51,41 @@ class PinterestDownloader {
     } catch (error) {
       console.error('Download failed:', error);
       return null;
+    }
+  }
+
+  async createVideoRedirectHtml(pinUrl, filename) {
+    const htmlContent = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pinterest Video Redirect</title>
+    <script>
+        // Redirect to the Pinterest video pin page
+        window.location.href = "${pinUrl}";
+    </script>
+</head>
+<body>
+    <p>Redirecting to Pinterest video...</p>
+    <p>If you are not redirected automatically, <a href="${pinUrl}">click here</a>.</p>
+</body>
+</html>`;
+
+    const blob = new Blob([htmlContent], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    
+    try {
+      const htmlFilename = filename.replace(/\.[^.]+$/, '.html');
+      await chrome.downloads.download({
+        url: url,
+        filename: htmlFilename,
+        conflictAction: 'uniquify'
+      });
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to create HTML redirect:', error);
+      URL.revokeObjectURL(url);
     }
   }
 
@@ -240,18 +283,27 @@ function getHighResImageUrl(imageSrc) {
 }
 
 async function handleDownloadImages(images) {
+  console.log('Background: Starting download of', images.length, 'images');
   const imagesByMonth = {};
   
   for (const img of images) {
     // Skip if already downloaded
     const imageId = `${img.senderId}_${img.messageId}_${img.imageUrl}`;
+    console.log('Background: Checking if already downloaded:', imageId, 'exists:', downloader.downloadedImages.has(imageId));
     if (downloader.downloadedImages.has(imageId)) {
+      console.log('Background: Skipping already downloaded image:', imageId);
       continue;
     }
 
-    // Download image
-    const filename = downloader.generateFilename(img.imageUrl, img.senderId, img.messageId, img.pinId);
+    // Download image (or poster for video)
+    const filename = downloader.generateFilename(img.imageUrl, img.senderId, img.messageId, img.pinId, img.timestamp, img.isVideo, img.username);
+    console.log('Background: Downloading with timestamp:', img.timestamp, 'username:', img.username, 'filename:', filename);
     await downloader.downloadImage(img.imageUrl, filename);
+
+    // For videos, also create an HTML redirect file
+    if (img.isVideo && img.pinUrl) {
+      await downloader.createVideoRedirectHtml(img.pinUrl, filename);
+    }
 
     // Group by month for HTML generation (using current date since we don't have message timestamp)
     const date = new Date();
