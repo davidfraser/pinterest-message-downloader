@@ -128,16 +128,20 @@ const downloader = new PinterestDownloader();
 
 // Listen for messages from content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log('Background: Received message:', message.type, message);
+  
   if (message.type === 'DOWNLOAD_IMAGES') {
     handleDownloadImages(message.images);
     sendResponse({ success: true });
   } else if (message.type === 'GET_LAST_PROCESSED') {
     sendResponse({ lastProcessedMessageId: downloader.lastProcessedMessageId });
   } else if (message.type === 'FETCH_PIN_IMAGE') {
+    console.log('Background: Handling FETCH_PIN_IMAGE for:', message.pinUrl);
     handleFetchPinImage(message.pinUrl).then(result => {
+      console.log('Background: Sending response:', result);
       sendResponse(result);
     }).catch(error => {
-      console.error('Error fetching pin image:', error);
+      console.error('Background: Error fetching pin image:', error);
       sendResponse({ error: error.message });
     });
     return true; // Keep the message channel open for async response
@@ -170,70 +174,56 @@ async function handleFetchPinImage(pinUrl) {
     
     const html = await response.text();
     
-    // Parse the HTML using DOMParser
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
+    // Use regex to find image URLs since DOMParser isn't available in service workers
+    const imageUrl = extractImageFromHtml(html);
     
-    // Look for the div with role="presentation"
-    const presentationDiv = doc.querySelector('div[role="presentation"]');
-    if (!presentationDiv) {
-      console.log('Background: No presentation div found, trying alternative selectors');
-      
-      // Try alternative approaches to find the main image
-      const alternatives = [
-        'img[data-test-id="pin-closeup-image"]',
-        '[data-test-id="closeup-image"] img',
-        '[data-test-id="pin-image"] img',
-        'img[alt*="Pin"]',
-        'main img[src*="pinimg.com"]'
-      ];
-      
-      for (const selector of alternatives) {
-        const img = doc.querySelector(selector);
-        if (img && img.src) {
-          console.log('Background: Found image using alternative selector:', selector);
-          return { 
-            imageUrl: getHighResImageUrl(img.src) 
-          };
-        }
-      }
-      
-      return { error: 'No presentation div or alternative image found' };
+    if (imageUrl) {
+      console.log('Background: Found main image:', imageUrl);
+      return { 
+        imageUrl: getHighResImageUrl(imageUrl) 
+      };
+    } else {
+      console.log('Background: No image found in HTML');
+      return { error: 'No image found in HTML' };
     }
-    
-    // Look for the closeup-image div within the presentation div
-    const closeupDiv = presentationDiv.querySelector('div[data-test-id="closeup-image"]');
-    if (!closeupDiv) {
-      console.log('Background: No closeup-image div found in presentation div');
-      
-      // Try to find any image in the presentation div
-      const img = presentationDiv.querySelector('img');
-      if (img && img.src) {
-        console.log('Background: Found fallback image in presentation div');
-        return { 
-          imageUrl: getHighResImageUrl(img.src) 
-        };
-      }
-      
-      return { error: 'No closeup-image div found' };
-    }
-    
-    // Find the img element within the closeup-image div
-    const img = closeupDiv.querySelector('img');
-    if (!img || !img.src) {
-      console.log('Background: No img element found in closeup-image div');
-      return { error: 'No img element in closeup-image div' };
-    }
-    
-    console.log('Background: Found main image:', img.src);
-    return { 
-      imageUrl: getHighResImageUrl(img.src) 
-    };
     
   } catch (error) {
     console.error('Background: Error fetching pin image:', error);
     return { error: error.message };
   }
+}
+
+function extractImageFromHtml(html) {
+  // Try multiple regex patterns to find the main Pinterest image
+  const patterns = [
+    // Look for images in closeup-image divs
+    /<div[^>]*data-test-id="closeup-image"[^>]*>[\s\S]*?<img[^>]*src="([^"]*pinimg\.com[^"]*)"[^>]*>/i,
+    
+    // Look for images in presentation divs
+    /<div[^>]*role="presentation"[^>]*>[\s\S]*?<img[^>]*src="([^"]*pinimg\.com[^"]*)"[^>]*>/i,
+    
+    // Look for pin-closeup-image
+    /<img[^>]*data-test-id="pin-closeup-image"[^>]*src="([^"]*pinimg\.com[^"]*)"[^>]*>/i,
+    
+    // Look for any large Pinterest image (originals or 736x)
+    /<img[^>]*src="([^"]*pinimg\.com[^"]*(?:originals|736x)[^"]*)"[^>]*>/i,
+    
+    // Look for any Pinterest image with reasonable size
+    /<img[^>]*src="([^"]*pinimg\.com[^"]*\d{3,4}x[^"]*)"[^>]*>/i,
+    
+    // Fallback: any Pinterest image
+    /<img[^>]*src="([^"]*pinimg\.com[^"]*)"[^>]*>/i
+  ];
+  
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match && match[1]) {
+      console.log('Background: Found image with pattern:', pattern.toString().substring(0, 50) + '...');
+      return match[1];
+    }
+  }
+  
+  return null;
 }
 
 function getHighResImageUrl(imageSrc) {

@@ -9,9 +9,9 @@
     console.log('Pinterest Downloader: Starting manual scan');
     try {
       const results = await scanForImages('');
-      window.dispatchEvent(new CustomEvent('pinterestScanResults', {
-        detail: { ...results, triggerDownload: true }
-      }));
+      // Store results on window for popup to retrieve
+      console.log('Pinterest Downloader: Storing results on window for popup to retrieve');
+      window.pinterestScanResults = { ...results, triggerDownload: true };
     } catch (error) {
       console.error('Pinterest Downloader: Error in manual scan:', error);
     }

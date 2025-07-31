@@ -5,9 +5,13 @@ class PinterestMessageParser {
     this.lastProcessedMessageId = '';
     this.autoDownload = false; // Only download when user clicks button
     
-    // Listen for results from the injected script
-    window.addEventListener('pinterestScanResults', (event) => {
-      this.handleScanResults(event.detail);
+    // Listen for messages from popup with scan results
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (message.type === 'PROCESS_SCAN_RESULTS') {
+        console.log('Pinterest Downloader: Received scan results from popup');
+        this.handleScanResults(message.results);
+        sendResponse({ success: true });
+      }
     });
     
     this.init();
@@ -33,6 +37,8 @@ class PinterestMessageParser {
 
 
   async handleScanResults(results) {
+    console.log('Pinterest Downloader: Content script received scan results:', results);
+    
     if (results.error) {
       console.error('Pinterest Downloader: Error from injected script:', results.error);
       return;
@@ -40,10 +46,14 @@ class PinterestMessageParser {
 
     // If this came from a manual scan trigger, enable auto download
     if (results.triggerDownload) {
+      console.log('Pinterest Downloader: Enabling auto download');
       this.autoDownload = true;
     }
 
+    console.log('Pinterest Downloader: autoDownload =', this.autoDownload, 'images count =', results.images?.length);
+
     if (results.images && results.images.length > 0 && this.autoDownload) {
+      console.log('Pinterest Downloader: Processing images for download');
       // For each image that needs fetching, get the actual image URL
       const processedImages = [];
       
@@ -84,11 +94,16 @@ class PinterestMessageParser {
         pinUrl: pinUrl
       });
       
+      console.log('Pinterest Downloader: Background response:', response);
+      
       if (response && response.imageUrl) {
         console.log('Pinterest Downloader: Received main image URL:', response.imageUrl);
         return response.imageUrl;
+      } else if (response && response.error) {
+        console.error('Pinterest Downloader: Background error:', response.error);
+        return null;
       } else {
-        console.log('Pinterest Downloader: No image URL received from background');
+        console.log('Pinterest Downloader: No image URL received from background', response);
         return null;
       }
       

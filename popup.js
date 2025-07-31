@@ -41,11 +41,49 @@ document.addEventListener('DOMContentLoaded', async () => {
           // Call the injected script function directly
           if (typeof window.pinterestScanForImages === 'function') {
             window.pinterestScanForImages();
+            
+            // Wait a bit for scan to complete, then retrieve results
+            setTimeout(() => {
+              if (window.pinterestScanResults) {
+                console.log('Pinterest Downloader: Retrieved scan results, sending to content script');
+                // Send results back to popup for processing
+                window.pinterestPopupResults = window.pinterestScanResults;
+                window.pinterestScanResults = null; // Clear after use
+              } else {
+                console.log('Pinterest Downloader: No scan results found');
+              }
+            }, 1000);
           } else {
             console.error('Pinterest Downloader: Scan function not available - extension may need to be reloaded');
           }
         }
       });
+
+      // Wait for scan to complete, then retrieve results and send to content script
+      setTimeout(async () => {
+        try {
+          console.log('Pinterest Downloader: Retrieving scan results');
+          const results = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            world: 'MAIN',
+            func: () => {
+              const results = window.pinterestPopupResults;
+              window.pinterestPopupResults = null; // Clear after retrieval
+              return results;
+            }
+          });
+
+          if (results[0]?.result) {
+            console.log('Pinterest Downloader: Sending results to content script');
+            await chrome.tabs.sendMessage(tab.id, {
+              type: 'PROCESS_SCAN_RESULTS',
+              results: results[0].result
+            });
+          }
+        } catch (error) {
+          console.error('Pinterest Downloader: Error retrieving results:', error);
+        }
+      }, 1500);
 
       scanButton.textContent = 'Scan Complete';
       setTimeout(() => {
