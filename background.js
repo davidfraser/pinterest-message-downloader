@@ -169,32 +169,60 @@ class PinterestDownloader {
 
 const downloader = new PinterestDownloader();
 
+// Function to forward logs to content script
+function logToContentScript(tabId, message) {
+  try {
+    chrome.tabs.sendMessage(tabId, {
+      type: 'BACKGROUND_LOG',
+      message: message
+    }).catch(() => {}); // Ignore errors if content script not available
+  } catch (error) {
+    // Ignore - content script might not be available
+  }
+}
+
 // Listen for messages from content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log('Background: Received message:', message.type, message);
+  const tabId = sender.tab?.id;
   
   if (message.type === 'DOWNLOAD_IMAGES') {
-    handleDownloadImages(message.images);
-    sendResponse({ success: true });
+    handleDownloadImages(message.images, tabId).then(() => {
+      sendResponse({ success: true });
+    }).catch(error => {
+      console.error('Background: Error in handleDownloadImages:', error);
+      if (tabId) logToContentScript(tabId, `Background: Error in handleDownloadImages: ${error}`);
+      sendResponse({ success: false, error: error.message });
+    });
+    return true; // Keep the message channel open for async response
   } else if (message.type === 'GET_LAST_PROCESSED') {
     sendResponse({ lastProcessedMessageId: downloader.lastProcessedMessageId });
   } else if (message.type === 'FETCH_PIN_IMAGE') {
     const pinNumber = message.pinNumber || 'unknown';
-    console.log(`Background: Pin ${pinNumber} handling FETCH_PIN_IMAGE for:`, message.pinUrl);
-    handleFetchPinImage(message.pinUrl, pinNumber).then(result => {
-      console.log(`Background: Pin ${pinNumber} sending response:`, result);
+    const logMsg = `Background: Pin ${pinNumber} handling FETCH_PIN_IMAGE for: ${message.pinUrl}`;
+    console.log(logMsg);
+    if (tabId) logToContentScript(tabId, logMsg);
+    
+    handleFetchPinImage(message.pinUrl, pinNumber, tabId).then(result => {
+      const responseMsg = `Background: Pin ${pinNumber} sending response: ${JSON.stringify(result)}`;
+      console.log(responseMsg);
+      if (tabId) logToContentScript(tabId, responseMsg);
       sendResponse(result);
     }).catch(error => {
-      console.error(`Background: Pin ${pinNumber} error fetching pin image:`, error);
+      const errorMsg = `Background: Pin ${pinNumber} error fetching pin image: ${error}`;
+      console.error(errorMsg);
+      if (tabId) logToContentScript(tabId, errorMsg);
       sendResponse({ error: error.message });
     });
     return true; // Keep the message channel open for async response
   }
 });
 
-async function handleFetchPinImage(pinUrl, pinNumber = 'unknown') {
+async function handleFetchPinImage(pinUrl, pinNumber = 'unknown', tabId = null) {
   try {
-    console.log(`Background: Pin ${pinNumber} fetching pin page:`, pinUrl);
+    const logMsg = `Background: Pin ${pinNumber} fetching pin page: ${pinUrl}`;
+    console.log(logMsg);
+    if (tabId) logToContentScript(tabId, logMsg);
     
     // Convert relative URL to absolute if needed
     const fullUrl = pinUrl.startsWith('http') ? pinUrl : `https://pinterest.com${pinUrl}`;
@@ -220,9 +248,11 @@ async function handleFetchPinImage(pinUrl, pinNumber = 'unknown') {
     const html = await response.text();
     
     // First check if this is a video pin
-    const videoResult = extractVideoFromHtml(html, pinNumber);
+    const videoResult = extractVideoFromHtml(html, pinNumber, tabId);
     if (videoResult.isVideo) {
-      console.log(`Background: Pin ${pinNumber} detected as video with poster:`, videoResult.imageUrl);
+      const videoDetectedMsg = `Background: Pin ${pinNumber} detected as video with poster: ${videoResult.imageUrl}`;
+      console.log(videoDetectedMsg);
+      if (tabId) logToContentScript(tabId, videoDetectedMsg);
       return videoResult;
     }
     
@@ -232,23 +262,31 @@ async function handleFetchPinImage(pinUrl, pinNumber = 'unknown') {
     if (imageUrl) {
       // Check if the image URL indicates it's actually a video thumbnail
       if (imageUrl.includes('/videos/thumbnails/')) {
-        console.log(`Background: Pin ${pinNumber} detected video thumbnail, looking for video element:`, imageUrl);
+        const videoThumbMsg = `Background: Pin ${pinNumber} detected video thumbnail, looking for video element: ${imageUrl}`;
+        console.log(videoThumbMsg);
+        if (tabId) logToContentScript(tabId, videoThumbMsg);
         
         // This is a video thumbnail, look for the actual video element
-        const videoResult = extractVideoElementFromHtml(html, pinNumber);
+        const videoResult = extractVideoElementFromHtml(html, pinNumber, tabId);
         if (videoResult.isVideo) {
-          console.log(`Background: Pin ${pinNumber} found video element with poster:`, videoResult.imageUrl);
+          const foundVideoMsg = `Background: Pin ${pinNumber} found video element with poster: ${videoResult.imageUrl}`;
+          console.log(foundVideoMsg);
+          if (tabId) logToContentScript(tabId, foundVideoMsg);
           return videoResult;
         } else {
           // Fallback: use the thumbnail as poster for video
-          console.log(`Background: Pin ${pinNumber} no video element found, using thumbnail as video poster`);
+          const fallbackMsg = `Background: Pin ${pinNumber} no video element found, using thumbnail as video poster`;
+          console.log(fallbackMsg);
+          if (tabId) logToContentScript(tabId, fallbackMsg);
           return {
             isVideo: true,
             imageUrl: getHighResImageUrl(imageUrl)
           };
         }
       } else {
-        console.log(`Background: Pin ${pinNumber} found main image:`, imageUrl);
+        const imageMsg = `Background: Pin ${pinNumber} found main image: ${imageUrl}`;
+        console.log(imageMsg);
+        if (tabId) logToContentScript(tabId, imageMsg);
         return { 
           imageUrl: getHighResImageUrl(imageUrl),
           isVideo: false
@@ -257,17 +295,19 @@ async function handleFetchPinImage(pinUrl, pinNumber = 'unknown') {
     } else {
       const errorMsg = `No image found in HTML for URL: ${pinUrl}`;
       console.error(`Background: Pin ${pinNumber}`, errorMsg);
+      if (tabId) logToContentScript(tabId, `Background: Pin ${pinNumber} ${errorMsg}`);
       return { error: errorMsg };
     }
     
   } catch (error) {
     const errorMsg = `${error.message} for URL: ${pinUrl}`;
     console.error(`Background: Pin ${pinNumber} error fetching pin image:`, errorMsg);
+    if (tabId) logToContentScript(tabId, `Background: Pin ${pinNumber} error fetching pin image: ${errorMsg}`);
     return { error: errorMsg };
   }
 }
 
-function extractVideoFromHtml(html, pinNumber) {
+function extractVideoFromHtml(html, pinNumber, tabId = null) {
   // Look for video elements with poster attributes in the HTML
   const videoPatterns = [
     // Look for video tags with poster attributes
@@ -284,7 +324,9 @@ function extractVideoFromHtml(html, pinNumber) {
   for (const pattern of videoPatterns) {
     const match = html.match(pattern);
     if (match && match[1]) {
-      console.log(`Background: Pin ${pinNumber} found video with pattern:`, pattern.toString().substring(0, 50) + '...');
+      const foundMsg = `Background: Pin ${pinNumber} found video with pattern: ${pattern.toString().substring(0, 50)}...`;
+      console.log(foundMsg);
+      if (tabId) logToContentScript(tabId, foundMsg);
       return {
         isVideo: true,
         imageUrl: getHighResImageUrl(match[1]) // Use poster as image URL
@@ -302,18 +344,24 @@ function extractVideoFromHtml(html, pinNumber) {
   
   for (const indicator of videoIndicators) {
     if (html.match(indicator)) {
-      console.log(`Background: Pin ${pinNumber} detected video indicator:`, indicator.toString());
+      const indicatorMsg = `Background: Pin ${pinNumber} detected video indicator: ${indicator.toString()}`;
+      console.log(indicatorMsg);
+      if (tabId) logToContentScript(tabId, indicatorMsg);
       // If we detect video but can't find poster, try to extract any poster image
       const posterMatch = html.match(/"poster[^"]*":\s*"([^"]*)"/i);
       if (posterMatch) {
-        console.log(`Background: Pin ${pinNumber} found video poster from metadata:`, posterMatch[1]);
+        const posterMsg = `Background: Pin ${pinNumber} found video poster from metadata: ${posterMatch[1]}`;
+        console.log(posterMsg);
+        if (tabId) logToContentScript(tabId, posterMsg);
         return {
           isVideo: true,
           imageUrl: getHighResImageUrl(posterMatch[1])
         };
       }
       // If no poster found, we'll fall back to regular image extraction
-      console.log(`Background: Pin ${pinNumber} video detected but no poster found, falling back to image extraction`);
+      const fallbackMsg = `Background: Pin ${pinNumber} video detected but no poster found, falling back to image extraction`;
+      console.log(fallbackMsg);
+      if (tabId) logToContentScript(tabId, fallbackMsg);
       break;
     }
   }
@@ -321,7 +369,7 @@ function extractVideoFromHtml(html, pinNumber) {
   return { isVideo: false };
 }
 
-function extractVideoElementFromHtml(html, pinNumber) {
+function extractVideoElementFromHtml(html, pinNumber, tabId = null) {
   // More specific video element patterns to look for when we know it's a video
   const videoElementPatterns = [
     // Look for video tags with poster attributes
@@ -341,7 +389,9 @@ function extractVideoElementFromHtml(html, pinNumber) {
   for (const pattern of videoElementPatterns) {
     const match = html.match(pattern);
     if (match && match[1]) {
-      console.log(`Background: Pin ${pinNumber} found video element with pattern:`, pattern.toString().substring(0, 50) + '...');
+      const patternMsg = `Background: Pin ${pinNumber} found video element with pattern: ${pattern.toString().substring(0, 50)}...`;
+      console.log(patternMsg);
+      if (tabId) logToContentScript(tabId, patternMsg);
       
       // Make sure the found URL is actually an image (poster) not a video file
       const foundUrl = match[1];
@@ -367,7 +417,9 @@ function extractVideoElementFromHtml(html, pinNumber) {
   for (const pattern of jsonPosterPatterns) {
     const match = html.match(pattern);
     if (match && match[1]) {
-      console.log(`Background: Pin ${pinNumber} found video poster in JSON:`, match[1]);
+      const jsonMsg = `Background: Pin ${pinNumber} found video poster in JSON: ${match[1]}`;
+      console.log(jsonMsg);
+      if (tabId) logToContentScript(tabId, jsonMsg);
       return {
         isVideo: true,
         imageUrl: getHighResImageUrl(match[1])
@@ -375,7 +427,9 @@ function extractVideoElementFromHtml(html, pinNumber) {
     }
   }
   
-  console.log(`Background: Pin ${pinNumber} no video element found in HTML`);
+  const noVideoMsg = `Background: Pin ${pinNumber} no video element found in HTML`;
+  console.log(noVideoMsg);
+  if (tabId) logToContentScript(tabId, noVideoMsg);
   return { isVideo: false };
 }
 
@@ -429,13 +483,15 @@ let currentDelay = 100; // Start with 100ms delay
 const maxDelay = 5000; // Max 5 second delay
 const delayMultiplier = 2; // Double delay on 429
 
-async function handleDownloadImages(images) {
+async function handleDownloadImages(images, tabId = null) {
   const totalFound = images.length;
   let alreadyDownloaded = 0;
   let actuallyDownloaded = 0;
   let errors = 0;
   
-  console.log('Background: Processing', totalFound, 'pins');
+  const startMsg = `Background: Processing ${totalFound} pins`;
+  console.log(startMsg);
+  if (tabId) logToContentScript(tabId, startMsg);
   const imagesByMonth = {};
   
   // Add pin numbers to images
@@ -444,12 +500,16 @@ async function handleDownloadImages(images) {
   });
   
   for (const img of images) {
-    console.log(`Background: Processing pin ${img.pinNumber}/${totalFound}`);
+    const processingMsg = `Background: Processing pin ${img.pinNumber}/${totalFound}`;
+    console.log(processingMsg);
+    if (tabId) logToContentScript(tabId, processingMsg);
     
     // Skip if already downloaded
     const imageId = `${img.senderId}_${img.messageId}_${img.imageUrl}`;
     if (downloader.downloadedImages.has(imageId)) {
-      console.log(`Background: Pin ${img.pinNumber} already downloaded`);
+      const alreadyMsg = `Background: Pin ${img.pinNumber} already downloaded`;
+      console.log(alreadyMsg);
+      if (tabId) logToContentScript(tabId, alreadyMsg);
       alreadyDownloaded++;
       continue;
     }
@@ -457,14 +517,18 @@ async function handleDownloadImages(images) {
     try {
       // Download image (or poster for video)
       const filename = downloader.generateFilename(img.imageUrl, img.senderId, img.messageId, img.pinId, img.timestamp, img.isVideo, img.username);
-      console.log(`Background: Pin ${img.pinNumber} downloading ${img.isVideo ? 'video poster' : 'image'}: ${filename}`);
+      const downloadMsg = `Background: Pin ${img.pinNumber} downloading ${img.isVideo ? 'video poster' : 'image'}: ${filename}`;
+      console.log(downloadMsg);
+      if (tabId) logToContentScript(tabId, downloadMsg);
       
       await downloader.downloadImage(img.imageUrl, filename);
       actuallyDownloaded++;
 
       // For videos, also create an HTML redirect file
       if (img.isVideo && img.pinUrl) {
-        console.log(`Background: Pin ${img.pinNumber} creating HTML redirect for video`);
+        const htmlMsg = `Background: Pin ${img.pinNumber} creating HTML redirect for video`;
+        console.log(htmlMsg);
+        if (tabId) logToContentScript(tabId, htmlMsg);
         await downloader.createVideoRedirectHtml(img.pinUrl, filename);
       }
 
@@ -484,13 +548,17 @@ async function handleDownloadImages(images) {
       currentDelay = Math.max(100, currentDelay * 0.8);
       
     } catch (error) {
-      console.error(`Background: Pin ${img.pinNumber} download failed:`, error);
+      const errorMsg = `Background: Pin ${img.pinNumber} download failed: ${error}`;
+      console.error(errorMsg);
+      if (tabId) logToContentScript(tabId, errorMsg);
       errors++;
       
       // If 429 error, increase delay (throttle)
       if (error.message && error.message.includes('429')) {
         currentDelay = Math.min(maxDelay, currentDelay * delayMultiplier);
-        console.log(`Background: Pin ${img.pinNumber} got 429, increasing delay to ${currentDelay}ms`);
+        const delayMsg = `Background: Pin ${img.pinNumber} got 429, increasing delay to ${currentDelay}ms`;
+        console.log(delayMsg);
+        if (tabId) logToContentScript(tabId, delayMsg);
       }
     }
     
@@ -501,7 +569,9 @@ async function handleDownloadImages(images) {
   }
 
   // Log the summary
-  console.log(`Pinterest Downloader: Found ${totalFound} pins, downloaded ${actuallyDownloaded}, skipped ${alreadyDownloaded} already downloaded, ${errors} errors`);
+  const summaryMsg = `Pinterest Downloader: Found ${totalFound} pins, downloaded ${actuallyDownloaded}, skipped ${alreadyDownloaded} already downloaded, ${errors} errors`;
+  console.log(summaryMsg);
+  if (tabId) logToContentScript(tabId, summaryMsg);
 
   // Generate monthly HTML files
   for (const [monthKey, monthImages] of Object.entries(imagesByMonth)) {

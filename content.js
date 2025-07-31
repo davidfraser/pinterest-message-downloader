@@ -5,11 +5,15 @@ class PinterestMessageParser {
     this.lastProcessedMessageId = '';
     this.autoDownload = false; // Only download when user clicks button
     
-    // Listen for messages from popup with scan results
+    // Listen for messages from popup with scan results and background logs
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.type === 'PROCESS_SCAN_RESULTS') {
         console.log('Pinterest Downloader: Received scan results from popup');
         this.handleScanResults(message.results);
+        sendResponse({ success: true });
+      } else if (message.type === 'BACKGROUND_LOG') {
+        // Forward background logs to browser console
+        console.log(message.message);
         sendResponse({ success: true });
       }
     });
@@ -78,6 +82,7 @@ class PinterestMessageParser {
       
       const fetchedImages = await Promise.all(imagePromises);
       const validImages = fetchedImages.filter(img => img !== null);
+      console.log(`Pinterest Downloader: Fetched ${validImages.length} valid images from ${fetchedImages.length} total`);
       processedImages.push(...validImages);
 
       if (processedImages.length > 0) {
@@ -86,10 +91,12 @@ class PinterestMessageParser {
           img.pinNumber = index + 1;
         });
         
-        await chrome.runtime.sendMessage({
+        console.log(`Pinterest Downloader: Sending ${processedImages.length} images to background for download`);
+        const downloadResponse = await chrome.runtime.sendMessage({
           type: 'DOWNLOAD_IMAGES',
           images: processedImages
         });
+        console.log('Pinterest Downloader: Download message response:', downloadResponse);
       }
       
       this.autoDownload = false;
@@ -110,7 +117,7 @@ class PinterestMessageParser {
       
       if (response && response.imageUrl) {
         console.log(`Pinterest Downloader: Pin ${pinNumber} received main image URL:`, response.imageUrl);
-        return response.imageUrl;
+        return response; // Return the full response object including isVideo flag
       } else if (response && response.error) {
         console.error(`Pinterest Downloader: Pin ${pinNumber} background error: ${response.error}`);
         return null;
