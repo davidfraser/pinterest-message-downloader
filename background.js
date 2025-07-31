@@ -357,6 +357,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // Keep the message channel open for async response
   } else if (message.type === 'GET_LAST_PROCESSED') {
     sendResponse({ lastProcessedMessageId: downloader.lastProcessedMessageId });
+  } else if (message.type === 'CLEAR_STORAGE') {
+    // Clear in-memory state
+    downloader.downloadedImages.clear();
+    downloader.lastProcessedMessageId = '';
+    
+    const clearMsg = 'Background: Cleared all download history and state';
+    console.log(clearMsg);
+    if (tabId) logToContentScript(tabId, clearMsg);
+    
+    sendResponse({ success: true });
   } else if (message.type === 'FETCH_PIN_IMAGE') {
     const pinNumber = message.pinNumber || 'unknown';
     const logMsg = `Background: Pin ${pinNumber} handling FETCH_PIN_IMAGE for: ${message.pinUrl}`;
