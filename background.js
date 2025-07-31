@@ -108,35 +108,6 @@ class PinterestDownloader {
     }
   }
 
-  async ensurePhotosSwipeFiles() {
-    // Download PhotoSwipe files if they don't exist
-    const files = [
-      {
-        url: 'https://cdn.jsdelivr.net/npm/photoswipe@5.4.2/dist/photoswipe.css',
-        filename: 'pinterest-messages/js/photoswipe.css'
-      },
-      {
-        url: 'https://cdn.jsdelivr.net/npm/photoswipe@5.4.2/dist/umd/photoswipe.umd.min.js',
-        filename: 'pinterest-messages/js/photoswipe.umd.min.js'
-      },
-      {
-        url: 'https://cdn.jsdelivr.net/npm/photoswipe@5.4.2/dist/umd/photoswipe-lightbox.umd.min.js',
-        filename: 'pinterest-messages/js/photoswipe-lightbox.umd.min.js'
-      }
-    ];
-
-    for (const file of files) {
-      try {
-        await chrome.downloads.download({
-          url: file.url,
-          filename: file.filename,
-          conflictAction: 'overwrite'
-        });
-      } catch (error) {
-        console.log(`PhotoSwipe file ${file.filename} download skipped (may already exist):`, error.message);
-      }
-    }
-  }
 
   async saveMonthlyHtml(images, year, month, tabId = null) {
     // No external dependencies needed for custom lightbox
@@ -271,12 +242,14 @@ class PinterestDownloader {
         }
         .lightbox-content {
             position: relative;
-            max-width: 100%;
-            max-height: 100%;
+            width: 100%;
+            height: 100%;
             overflow: auto;
             display: flex;
-            justify-content: center;
+            flex-direction: column;
             align-items: center;
+            padding: 20px;
+            box-sizing: border-box;
         }
         .lightbox-image {
             max-width: none !important;
@@ -284,6 +257,7 @@ class PinterestDownloader {
             width: auto !important;
             height: auto !important;
             display: block;
+            margin-top: 0;
         }
         .lightbox-nav {
             position: absolute;
@@ -312,16 +286,14 @@ class PinterestDownloader {
             z-index: 10001;
         }
         .lightbox-caption {
-            position: absolute;
-            bottom: 20px;
-            left: 20px;
-            right: 20px;
             background: rgba(0,0,0,0.7);
             color: white;
             padding: 15px;
             border-radius: 8px;
             font-size: 14px;
-            z-index: 10001;
+            margin-top: 20px;
+            max-width: 100%;
+            text-align: center;
         }
     </style>
 </head>

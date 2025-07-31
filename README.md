@@ -21,7 +21,7 @@ A Chrome extension that automatically downloads images and links to videos from 
   - Keyboard navigation (left/right arrows, ESC to close)
   - Video thumbnails with play button overlay
   - Only regenerates HTML for months with new downloads
-  - Automatically downloads PhotoSwipe library for offline viewing
+  - Custom lightbox with perfect aspect ratio preservation
 - **Throttling & Retry**: Handles rate limiting with intelligent backoff
 - **Progress Tracking**: Shows download counts and processing status
 
@@ -48,10 +48,6 @@ Downloads/
 └── pinterest-messages/
     ├── pinterest_pins_2025_07.html
     ├── pinterest_pins_2025_08.html
-    ├── js/
-    │   ├── photoswipe.css
-    │   ├── photoswipe.umd.min.js
-    │   └── photoswipe-lightbox.umd.min.js
     ├── from-{senderId1}/
     │   ├── 2025-07-30 22:08 John Doe 12345_pin_67890.jpg
     │   ├── 2025-07-30 22:10 John Doe video 12346_pin_67891.jpg
