@@ -138,12 +138,16 @@ class PinterestDownloader {
     }
   }
 
-  async saveMonthlyHtml(images, year, month) {
+  async saveMonthlyHtml(images, year, month, tabId = null) {
     // Ensure PhotoSwipe files are downloaded first
     await this.ensurePhotosSwipeFiles();
     
     const monthName = new Date(year, month - 1).toLocaleString('default', { month: 'long' });
     const filename = `pinterest-messages/pinterest_pins_${year}_${month.toString().padStart(2, '0')}.html`;
+    
+    const generateMsg = `Background: Generating HTML gallery ${filename} with ${images.length} images`;
+    console.log(generateMsg);
+    if (tabId) logToContentScript(tabId, generateMsg);
     
     const html = this.generateHtmlContent(images, year, month);
     
@@ -151,13 +155,23 @@ class PinterestDownloader {
     const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
     
     try {
+      const downloadMsg = `Background: Downloading HTML gallery file: ${filename}`;
+      console.log(downloadMsg);
+      if (tabId) logToContentScript(tabId, downloadMsg);
+      
       await chrome.downloads.download({
         url: dataUrl,
         filename: filename,
         conflictAction: 'overwrite'
       });
+      
+      const successMsg = `Background: Successfully created HTML gallery: ${filename}`;
+      console.log(successMsg);
+      if (tabId) logToContentScript(tabId, successMsg);
     } catch (error) {
-      console.error('Failed to save HTML:', error);
+      const errorMsg = `Background: Failed to save HTML ${filename}: ${error}`;
+      console.error(errorMsg);
+      if (tabId) logToContentScript(tabId, errorMsg);
     }
   }
 
@@ -347,26 +361,32 @@ class PinterestDownloader {
         lightbox.on('itemData', (e) => {
             const { itemData } = e;
             
-            // If dimensions aren't set, we need to load the image to get them
-            if (!itemData.width || !itemData.height) {
-                return new Promise((resolve) => {
-                    const img = new Image();
-                    img.onload = () => {
-                        itemData.width = img.naturalWidth;
-                        itemData.height = img.naturalHeight;
-                        resolve(itemData);
-                    };
-                    img.onerror = () => {
-                        // Fallback dimensions if image fails to load
+            // Always load image to get true dimensions, don't rely on data attributes
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => {
+                    // Use actual image dimensions for perfect aspect ratio
+                    itemData.width = img.naturalWidth;
+                    itemData.height = img.naturalHeight;
+                    console.log('PhotoSwipe: Loaded image dimensions', img.naturalWidth + 'x' + img.naturalHeight, 'for', itemData.src);
+                    resolve(itemData);
+                };
+                img.onerror = () => {
+                    // Try to get dimensions from the thumbnail img element as fallback
+                    const thumbnailImg = document.querySelector('img[src="' + itemData.src + '"]');
+                    if (thumbnailImg) {
+                        itemData.width = thumbnailImg.naturalWidth || 800;
+                        itemData.height = thumbnailImg.naturalHeight || 600;
+                    } else {
+                        // Final fallback dimensions
                         itemData.width = 800;
                         itemData.height = 600;
-                        resolve(itemData);
-                    };
-                    img.src = itemData.src;
-                });
-            }
-            
-            return itemData;
+                    }
+                    console.log('PhotoSwipe: Using fallback dimensions', itemData.width + 'x' + itemData.height, 'for', itemData.src);
+                    resolve(itemData);
+                };
+                img.src = itemData.src;
+            });
         });
 
         lightbox.init();
@@ -838,7 +858,7 @@ async function handleDownloadImages(images, tabId = null) {
       const htmlMsg = `Background: Generating HTML gallery for ${year}-${month} with ${monthImages.length} images`;
       console.log(htmlMsg);
       if (tabId) logToContentScript(tabId, htmlMsg);
-      await downloader.saveMonthlyHtml(monthImages, year, month);
+      await downloader.saveMonthlyHtml(monthImages, year, month, tabId);
     }
   }
 }
