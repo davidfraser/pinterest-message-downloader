@@ -231,10 +231,14 @@ class PinterestDownloader {
           const isVideo = img.isVideo || (img.filename && img.filename.includes(' video '));
           const videoRedirectFile = isVideo && img.filename ? img.filename.replace(/\.[^.]+$/, '.html').replace(/^pinterest-messages\//, '') : null;
           
+          // Calculate relative path to the downloaded image file
+          const localImagePath = img.filename ? img.filename.replace(/^pinterest-messages\//, '') : null;
+          const imageSrc = localImagePath || img.imageUrl; // Fallback to online URL if no filename
+          
           return `
             <div class="pin-card">
-                <div class="pin-image-container" ${!isVideo ? `data-pswp-width="800" data-pswp-height="600" data-pswp-src="${img.imageUrl}"` : ''}>
-                    <img src="${img.imageUrl}" alt="Pinterest Pin" class="pin-image" loading="lazy">
+                <div class="pin-image-container" ${!isVideo ? `data-pswp-width="800" data-pswp-height="600" data-pswp-src="${imageSrc}"` : ''}>
+                    <img src="${imageSrc}" alt="Pinterest Pin" class="pin-image" loading="lazy">
                     ${isVideo ? `
                         <div class="video-badge">VIDEO</div>
                         <div class="video-overlay" onclick="openVideoRedirect('${videoRedirectFile || '#'}')">
@@ -709,7 +713,10 @@ async function handleDownloadImages(images, tabId = null) {
       if (!imagesByMonth[monthKey]) {
         imagesByMonth[monthKey] = [];
       }
-      imagesByMonth[monthKey].push(img);
+      
+      // Add filename to image object for HTML generation
+      const imgWithFilename = { ...img, filename: filename };
+      imagesByMonth[monthKey].push(imgWithFilename);
 
       // Save progress
       await downloader.saveProgress(imageId, img.messageId);

@@ -15,6 +15,7 @@ A Chrome extension that automatically downloads images and links to videos from 
 - **Incremental Processing**: Remembers last processed message to avoid re-downloading
 - **Interactive HTML Gallery**: 
   - Generates monthly HTML files with thumbnail grid
+  - Uses local file references for completely offline viewing
   - Click images for full-screen lightbox viewing
   - Keyboard navigation (left/right arrows, ESC to close)
   - Video thumbnails with play button overlay
