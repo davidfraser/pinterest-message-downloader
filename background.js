@@ -179,21 +179,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   } else if (message.type === 'GET_LAST_PROCESSED') {
     sendResponse({ lastProcessedMessageId: downloader.lastProcessedMessageId });
   } else if (message.type === 'FETCH_PIN_IMAGE') {
-    console.log('Background: Handling FETCH_PIN_IMAGE for:', message.pinUrl);
-    handleFetchPinImage(message.pinUrl).then(result => {
-      console.log('Background: Sending response:', result);
+    const pinNumber = message.pinNumber || 'unknown';
+    console.log(`Background: Pin ${pinNumber} handling FETCH_PIN_IMAGE for:`, message.pinUrl);
+    handleFetchPinImage(message.pinUrl, pinNumber).then(result => {
+      console.log(`Background: Pin ${pinNumber} sending response:`, result);
       sendResponse(result);
     }).catch(error => {
-      console.error('Background: Error fetching pin image:', error);
+      console.error(`Background: Pin ${pinNumber} error fetching pin image:`, error);
       sendResponse({ error: error.message });
     });
     return true; // Keep the message channel open for async response
   }
 });
 
-async function handleFetchPinImage(pinUrl) {
+async function handleFetchPinImage(pinUrl, pinNumber = 'unknown') {
   try {
-    console.log('Background: Fetching pin page:', pinUrl);
+    console.log(`Background: Pin ${pinNumber} fetching pin page:`, pinUrl);
     
     // Convert relative URL to absolute if needed
     const fullUrl = pinUrl.startsWith('http') ? pinUrl : `https://pinterest.com${pinUrl}`;
@@ -211,29 +212,171 @@ async function handleFetchPinImage(pinUrl) {
     });
     
     if (!response.ok) {
-      console.error('Background: Failed to fetch pin page:', response.status);
-      return { error: `HTTP ${response.status}` };
+      const errorMsg = `HTTP ${response.status} for URL: ${pinUrl}`;
+      console.error(`Background: Pin ${pinNumber} failed to fetch pin page:`, errorMsg);
+      return { error: errorMsg };
     }
     
     const html = await response.text();
     
-    // Use regex to find image URLs since DOMParser isn't available in service workers
+    // First check if this is a video pin
+    const videoResult = extractVideoFromHtml(html, pinNumber);
+    if (videoResult.isVideo) {
+      console.log(`Background: Pin ${pinNumber} detected as video with poster:`, videoResult.imageUrl);
+      return videoResult;
+    }
+    
+    // If not a video, extract image URL
     const imageUrl = extractImageFromHtml(html);
     
     if (imageUrl) {
-      console.log('Background: Found main image:', imageUrl);
-      return { 
-        imageUrl: getHighResImageUrl(imageUrl) 
-      };
+      // Check if the image URL indicates it's actually a video thumbnail
+      if (imageUrl.includes('/videos/thumbnails/')) {
+        console.log(`Background: Pin ${pinNumber} detected video thumbnail, looking for video element:`, imageUrl);
+        
+        // This is a video thumbnail, look for the actual video element
+        const videoResult = extractVideoElementFromHtml(html, pinNumber);
+        if (videoResult.isVideo) {
+          console.log(`Background: Pin ${pinNumber} found video element with poster:`, videoResult.imageUrl);
+          return videoResult;
+        } else {
+          // Fallback: use the thumbnail as poster for video
+          console.log(`Background: Pin ${pinNumber} no video element found, using thumbnail as video poster`);
+          return {
+            isVideo: true,
+            imageUrl: getHighResImageUrl(imageUrl)
+          };
+        }
+      } else {
+        console.log(`Background: Pin ${pinNumber} found main image:`, imageUrl);
+        return { 
+          imageUrl: getHighResImageUrl(imageUrl),
+          isVideo: false
+        };
+      }
     } else {
-      console.log('Background: No image found in HTML');
-      return { error: 'No image found in HTML' };
+      const errorMsg = `No image found in HTML for URL: ${pinUrl}`;
+      console.error(`Background: Pin ${pinNumber}`, errorMsg);
+      return { error: errorMsg };
     }
     
   } catch (error) {
-    console.error('Background: Error fetching pin image:', error);
-    return { error: error.message };
+    const errorMsg = `${error.message} for URL: ${pinUrl}`;
+    console.error(`Background: Pin ${pinNumber} error fetching pin image:`, errorMsg);
+    return { error: errorMsg };
   }
+}
+
+function extractVideoFromHtml(html, pinNumber) {
+  // Look for video elements with poster attributes in the HTML
+  const videoPatterns = [
+    // Look for video tags with poster attributes
+    /<video[^>]*poster="([^"]*)"[^>]*>/i,
+    /<video[^>]*poster='([^']*)'[^>]*>/i,
+    
+    // Look for video elements in specific Pinterest video containers
+    /<div[^>]*data-test-id="video[^"]*"[^>]*>[\s\S]*?<video[^>]*poster="([^"]*)"[^>]*>/i,
+    
+    // Look for Pinterest video metadata
+    /"video_url":\s*"([^"]*)"[\s\S]*?"poster_url":\s*"([^"]*)"/, // This would capture both video and poster
+  ];
+  
+  for (const pattern of videoPatterns) {
+    const match = html.match(pattern);
+    if (match && match[1]) {
+      console.log(`Background: Pin ${pinNumber} found video with pattern:`, pattern.toString().substring(0, 50) + '...');
+      return {
+        isVideo: true,
+        imageUrl: getHighResImageUrl(match[1]) // Use poster as image URL
+      };
+    }
+  }
+  
+  // Also check for video indicators in metadata/JSON
+  const videoIndicators = [
+    /"type":\s*"video"/i,
+    /"is_video":\s*true/i,
+    /"story_pin_video"/i,
+    /"videoUrl"/i
+  ];
+  
+  for (const indicator of videoIndicators) {
+    if (html.match(indicator)) {
+      console.log(`Background: Pin ${pinNumber} detected video indicator:`, indicator.toString());
+      // If we detect video but can't find poster, try to extract any poster image
+      const posterMatch = html.match(/"poster[^"]*":\s*"([^"]*)"/i);
+      if (posterMatch) {
+        console.log(`Background: Pin ${pinNumber} found video poster from metadata:`, posterMatch[1]);
+        return {
+          isVideo: true,
+          imageUrl: getHighResImageUrl(posterMatch[1])
+        };
+      }
+      // If no poster found, we'll fall back to regular image extraction
+      console.log(`Background: Pin ${pinNumber} video detected but no poster found, falling back to image extraction`);
+      break;
+    }
+  }
+  
+  return { isVideo: false };
+}
+
+function extractVideoElementFromHtml(html, pinNumber) {
+  // More specific video element patterns to look for when we know it's a video
+  const videoElementPatterns = [
+    // Look for video tags with poster attributes
+    /<video[^>]*poster="([^"]*)"[^>]*>/i,
+    /<video[^>]*poster='([^']*)'[^>]*>/i,
+    
+    // Look for video source URLs and try to find associated posters
+    /<video[^>]*>[\s\S]*?<source[^>]*src="([^"]*)"[^>]*>[\s\S]*?<\/video>/i,
+    
+    // Look for video elements with data attributes
+    /<video[^>]*data-[^>]*poster[^>]*="([^"]*)"[^>]*>/i,
+    
+    // Look for Pinterest video containers with poster images
+    /<div[^>]*class="[^"]*video[^"]*"[^>]*>[\s\S]*?<img[^>]*src="([^"]*)"[^>]*>/i,
+  ];
+  
+  for (const pattern of videoElementPatterns) {
+    const match = html.match(pattern);
+    if (match && match[1]) {
+      console.log(`Background: Pin ${pinNumber} found video element with pattern:`, pattern.toString().substring(0, 50) + '...');
+      
+      // Make sure the found URL is actually an image (poster) not a video file
+      const foundUrl = match[1];
+      if (foundUrl.includes('.mp4') || foundUrl.includes('.webm') || foundUrl.includes('.mov')) {
+        // This is a video file, not a poster - keep looking
+        continue;
+      }
+      
+      return {
+        isVideo: true,
+        imageUrl: getHighResImageUrl(foundUrl)
+      };
+    }
+  }
+  
+  // Look for video poster in JSON data
+  const jsonPosterPatterns = [
+    /"poster":\s*"([^"]*\.(?:jpg|jpeg|png|webp)[^"]*)"/i,
+    /"poster_url":\s*"([^"]*\.(?:jpg|jpeg|png|webp)[^"]*)"/i,
+    /"video_poster":\s*"([^"]*\.(?:jpg|jpeg|png|webp)[^"]*)"/i,
+  ];
+  
+  for (const pattern of jsonPosterPatterns) {
+    const match = html.match(pattern);
+    if (match && match[1]) {
+      console.log(`Background: Pin ${pinNumber} found video poster in JSON:`, match[1]);
+      return {
+        isVideo: true,
+        imageUrl: getHighResImageUrl(match[1])
+      };
+    }
+  }
+  
+  console.log(`Background: Pin ${pinNumber} no video element found in HTML`);
+  return { isVideo: false };
 }
 
 function extractImageFromHtml(html) {
@@ -282,41 +425,83 @@ function getHighResImageUrl(imageSrc) {
   return imageSrc;
 }
 
+let currentDelay = 100; // Start with 100ms delay
+const maxDelay = 5000; // Max 5 second delay
+const delayMultiplier = 2; // Double delay on 429
+
 async function handleDownloadImages(images) {
-  console.log('Background: Starting download of', images.length, 'images');
+  const totalFound = images.length;
+  let alreadyDownloaded = 0;
+  let actuallyDownloaded = 0;
+  let errors = 0;
+  
+  console.log('Background: Processing', totalFound, 'pins');
   const imagesByMonth = {};
   
+  // Add pin numbers to images
+  images.forEach((img, index) => {
+    img.pinNumber = index + 1;
+  });
+  
   for (const img of images) {
+    console.log(`Background: Processing pin ${img.pinNumber}/${totalFound}`);
+    
     // Skip if already downloaded
     const imageId = `${img.senderId}_${img.messageId}_${img.imageUrl}`;
-    console.log('Background: Checking if already downloaded:', imageId, 'exists:', downloader.downloadedImages.has(imageId));
     if (downloader.downloadedImages.has(imageId)) {
-      console.log('Background: Skipping already downloaded image:', imageId);
+      console.log(`Background: Pin ${img.pinNumber} already downloaded`);
+      alreadyDownloaded++;
       continue;
     }
 
-    // Download image (or poster for video)
-    const filename = downloader.generateFilename(img.imageUrl, img.senderId, img.messageId, img.pinId, img.timestamp, img.isVideo, img.username);
-    console.log('Background: Downloading with timestamp:', img.timestamp, 'username:', img.username, 'filename:', filename);
-    await downloader.downloadImage(img.imageUrl, filename);
+    try {
+      // Download image (or poster for video)
+      const filename = downloader.generateFilename(img.imageUrl, img.senderId, img.messageId, img.pinId, img.timestamp, img.isVideo, img.username);
+      console.log(`Background: Pin ${img.pinNumber} downloading ${img.isVideo ? 'video poster' : 'image'}: ${filename}`);
+      
+      await downloader.downloadImage(img.imageUrl, filename);
+      actuallyDownloaded++;
 
-    // For videos, also create an HTML redirect file
-    if (img.isVideo && img.pinUrl) {
-      await downloader.createVideoRedirectHtml(img.pinUrl, filename);
+      // For videos, also create an HTML redirect file
+      if (img.isVideo && img.pinUrl) {
+        console.log(`Background: Pin ${img.pinNumber} creating HTML redirect for video`);
+        await downloader.createVideoRedirectHtml(img.pinUrl, filename);
+      }
+
+      // Group by month for HTML generation
+      const date = new Date();
+      const monthKey = `${date.getFullYear()}-${date.getMonth() + 1}`;
+      
+      if (!imagesByMonth[monthKey]) {
+        imagesByMonth[monthKey] = [];
+      }
+      imagesByMonth[monthKey].push(img);
+
+      // Save progress
+      await downloader.saveProgress(imageId, img.messageId);
+      
+      // Reduce delay on success (speed up)
+      currentDelay = Math.max(100, currentDelay * 0.8);
+      
+    } catch (error) {
+      console.error(`Background: Pin ${img.pinNumber} download failed:`, error);
+      errors++;
+      
+      // If 429 error, increase delay (throttle)
+      if (error.message && error.message.includes('429')) {
+        currentDelay = Math.min(maxDelay, currentDelay * delayMultiplier);
+        console.log(`Background: Pin ${img.pinNumber} got 429, increasing delay to ${currentDelay}ms`);
+      }
     }
-
-    // Group by month for HTML generation (using current date since we don't have message timestamp)
-    const date = new Date();
-    const monthKey = `${date.getFullYear()}-${date.getMonth() + 1}`;
     
-    if (!imagesByMonth[monthKey]) {
-      imagesByMonth[monthKey] = [];
+    // Apply current delay between downloads
+    if (currentDelay > 100) {
+      await new Promise(resolve => setTimeout(resolve, currentDelay));
     }
-    imagesByMonth[monthKey].push(img);
-
-    // Save progress
-    await downloader.saveProgress(imageId, img.messageId);
   }
+
+  // Log the summary
+  console.log(`Pinterest Downloader: Found ${totalFound} pins, downloaded ${actuallyDownloaded}, skipped ${alreadyDownloaded} already downloaded, ${errors} errors`);
 
   // Generate monthly HTML files
   for (const [monthKey, monthImages] of Object.entries(imagesByMonth)) {

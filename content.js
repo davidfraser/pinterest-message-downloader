@@ -57,26 +57,17 @@ class PinterestMessageParser {
       // For each image that needs fetching, get the actual image URL
       const processedImages = [];
       
-      // Separate videos and images for processing
-      const videos = results.images.filter(img => img.isVideo);
-      const images = results.images.filter(img => !img.isVideo);
-      
-      // Process videos immediately (no background fetching needed)
-      for (const video of videos) {
-        processedImages.push({
-          ...video,
-          imageUrl: video.posterUrl
-        });
-      }
-      
-      // Process images with parallel fetching
-      const imagePromises = images.map(async (img) => {
+      // Process all pins with parallel fetching (video detection happens in background)
+      const imagePromises = results.images.map(async (img, index) => {
+        const pinNumber = index + 1;
+        img.pinNumber = pinNumber;
+        
         if (img.needsImageFetch) {
-          const imageUrl = await this.fetchMainImageFromPin(img.pinUrl);
-          if (imageUrl) {
+          const result = await this.fetchMainImageFromPin(img.pinUrl, pinNumber);
+          if (result) {
             return {
               ...img,
-              imageUrl: imageUrl
+              ...result // This will include imageUrl and isVideo flag from background
             };
           }
         } else {
@@ -90,42 +81,46 @@ class PinterestMessageParser {
       processedImages.push(...validImages);
 
       if (processedImages.length > 0) {
+        // Add pin numbers to images
+        processedImages.forEach((img, index) => {
+          img.pinNumber = index + 1;
+        });
+        
         await chrome.runtime.sendMessage({
           type: 'DOWNLOAD_IMAGES',
           images: processedImages
         });
-        
-        console.log(`Pinterest Downloader: Downloaded ${processedImages.length} new images`);
       }
       
       this.autoDownload = false;
     }
   }
 
-  async fetchMainImageFromPin(pinUrl) {
+  async fetchMainImageFromPin(pinUrl, pinNumber) {
     try {
-      console.log('Pinterest Downloader: Requesting main image for:', pinUrl);
+      console.log(`Pinterest Downloader: Pin ${pinNumber} requesting main image for:`, pinUrl);
       
       // Send request to background script to fetch the pin page
       const response = await chrome.runtime.sendMessage({
         type: 'FETCH_PIN_IMAGE',
-        pinUrl: pinUrl
+        pinUrl: pinUrl,
+        pinNumber: pinNumber
       });
       
       
       if (response && response.imageUrl) {
-        console.log('Pinterest Downloader: Received main image URL:', response.imageUrl);
+        console.log(`Pinterest Downloader: Pin ${pinNumber} received main image URL:`, response.imageUrl);
         return response.imageUrl;
       } else if (response && response.error) {
-        console.error('Pinterest Downloader: Background error:', response.error);
+        console.error(`Pinterest Downloader: Pin ${pinNumber} background error: ${response.error}`);
         return null;
       } else {
-        console.log('Pinterest Downloader: No image URL received from background', response);
+        console.error(`Pinterest Downloader: Pin ${pinNumber} no image URL received from background for: ${pinUrl}`, response);
         return null;
       }
       
     } catch (error) {
-      console.error('Pinterest Downloader: Error requesting main image:', error);
+      console.error(`Pinterest Downloader: Pin ${pinNumber} error requesting main image for ${pinUrl}:`, error);
       return null;
     }
   }

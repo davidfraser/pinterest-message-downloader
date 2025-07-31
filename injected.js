@@ -87,34 +87,15 @@
 
     console.log('Pinterest Downloader: Found pin link:', pinLink.href);
 
-    // Check if this is a video by looking for video elements
-    const videoElement = messageElement.querySelector('video');
-    const isVideo = videoElement && videoElement.poster;
-
-    if (isVideo) {
-      console.log('Pinterest Downloader: Found video with poster:', videoElement.poster);
-      return {
-        senderId: linkData.senderId,
-        messageId: linkData.messageId,
-        conversationId: linkData.conversationId,
-        pinId: linkData.pinId,
-        pinUrl: pinLink.href,
-        isVideo: true,
-        posterUrl: videoElement.poster,
-        needsImageFetch: false // We have the poster URL directly
-      };
-    } else {
-      return {
-        senderId: linkData.senderId,
-        messageId: linkData.messageId,
-        conversationId: linkData.conversationId,
-        pinId: linkData.pinId,
-        pinUrl: pinLink.href,
-        isVideo: false,
-        // We'll fetch the actual image URL in the background script
-        needsImageFetch: true
-      };
-    }
+    // All pins need to be fetched to determine if they're videos or images
+    return {
+      senderId: linkData.senderId,
+      messageId: linkData.messageId,
+      conversationId: linkData.conversationId,
+      pinId: linkData.pinId,
+      pinUrl: pinLink.href,
+      needsImageFetch: true // Always fetch to determine video vs image
+    };
   }
 
   function extractTimestampFromMessage(messageElement) {
