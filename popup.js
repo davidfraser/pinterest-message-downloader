@@ -25,14 +25,26 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Scan button handler
   scanButton.addEventListener('click', async () => {
+    console.log('Pinterest Downloader: Scan button clicked');
     scanButton.disabled = true;
     scanButton.textContent = 'Scanning...';
 
     try {
-      // Inject content script to trigger scan
+      // Execute script in page context to trigger scan
+      console.log('Pinterest Downloader: Executing script to trigger scan');
       await chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        func: triggerManualScan
+        world: 'MAIN',
+        func: () => {
+          console.log('Pinterest Downloader: Triggering manual scan');
+          
+          // Call the injected script function directly
+          if (typeof window.pinterestScanForImages === 'function') {
+            window.pinterestScanForImages();
+          } else {
+            console.error('Pinterest Downloader: Scan function not available - extension may need to be reloaded');
+          }
+        }
       });
 
       scanButton.textContent = 'Scan Complete';
@@ -76,11 +88,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  // Function to be injected into the page
-  function triggerManualScan() {
-    // Dispatch a custom event to trigger manual scan
-    window.dispatchEvent(new CustomEvent('pinterestManualScan'));
-  }
 });
 
 // Listen for storage changes to update stats

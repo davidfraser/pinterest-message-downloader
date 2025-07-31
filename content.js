@@ -2,9 +2,14 @@
 class PinterestMessageParser {
   constructor() {
     this.isProcessing = false;
-    this.observer = null;
     this.lastProcessedMessageId = '';
     this.autoDownload = false; // Only download when user clicks button
+    
+    // Listen for results from the injected script
+    window.addEventListener('pinterestScanResults', (event) => {
+      this.handleScanResults(event.detail);
+    });
+    
     this.init();
   }
 
@@ -13,169 +18,59 @@ class PinterestMessageParser {
     const response = await chrome.runtime.sendMessage({ type: 'GET_LAST_PROCESSED' });
     this.lastProcessedMessageId = response.lastProcessedMessageId || '';
     
-    // Listen for manual scan trigger from popup
-    window.addEventListener('pinterestManualScan', () => {
+    
+    // Inject script into page context to access the real DOM (but don't scan yet)
+    this.injectPageScript();
+  }
+
+  injectPageScript() {
+    // Inject a script that runs in the page's context, not the content script's isolated context
+    const script = document.createElement('script');
+    script.src = chrome.runtime.getURL('injected.js');
+    // Don't remove the script - we need it to stay and listen for events
+    (document.head || document.documentElement).appendChild(script);
+  }
+
+
+  async handleScanResults(results) {
+    if (results.error) {
+      console.error('Pinterest Downloader: Error from injected script:', results.error);
+      return;
+    }
+
+    // If this came from a manual scan trigger, enable auto download
+    if (results.triggerDownload) {
       this.autoDownload = true;
-      this.processMessages();
-    });
-    
-    // Wait for page to load completely
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', () => this.startObserving());
-    } else {
-      this.startObserving();
     }
-  }
 
-  startObserving() {
-    // Look for Pinterest messages container
-    this.findMessagesContainer();
-    
-    // Set up mutation observer to detect new messages
-    this.observer = new MutationObserver((mutations) => {
-      mutations.forEach((mutation) => {
-        if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-          // Only scan automatically to identify new messages, don't download
-          this.debounceProcessMessages();
-        }
-      });
-    });
-
-    this.observer.observe(document.body, {
-      childList: true,
-      subtree: true
-    });
-
-    // Initial scan (no download)
-    this.debounceProcessMessages();
-  }
-
-  debounceProcessMessages() {
-    clearTimeout(this.debounceTimer);
-    this.debounceTimer = setTimeout(() => {
-      this.processMessages();
-    }, 1000);
-  }
-
-  findMessagesContainer() {
-    // Look specifically for the messages-container as specified
-    this.messagesContainer = document.querySelector('[data-test-id="messages-container"]');
-    
-    if (!this.messagesContainer) {
-      console.log('Pinterest Downloader: messages-container not found');
-    }
-  }
-
-  async processMessages() {
-    if (this.isProcessing) return;
-    this.isProcessing = true;
-
-    try {
-      const images = await this.extractImages();
+    if (results.images && results.images.length > 0 && this.autoDownload) {
+      // For each image that needs fetching, get the actual image URL
+      const processedImages = [];
       
-      if (images.length > 0) {
-        // Filter out already processed images based on message ID
-        const newImages = images.filter(img => img.messageId !== this.lastProcessedMessageId);
+      for (const img of results.images) {
+        if (img.needsImageFetch) {
+          const imageUrl = await this.fetchMainImageFromPin(img.pinUrl);
+          if (imageUrl) {
+            processedImages.push({
+              ...img,
+              imageUrl: imageUrl
+            });
+          }
+        } else {
+          processedImages.push(img);
+        }
+      }
+
+      if (processedImages.length > 0) {
+        await chrome.runtime.sendMessage({
+          type: 'DOWNLOAD_IMAGES',
+          images: processedImages
+        });
         
-        if (newImages.length > 0 && this.autoDownload) {
-          await chrome.runtime.sendMessage({
-            type: 'DOWNLOAD_IMAGES',
-            images: newImages
-          });
-          
-          console.log(`Pinterest Downloader: Downloaded ${newImages.length} new images`);
-          this.autoDownload = false; // Reset after download
-        } else if (newImages.length > 0) {
-          console.log(`Pinterest Downloader: Found ${newImages.length} new images (waiting for user to click download)`);
-        }
+        console.log(`Pinterest Downloader: Downloaded ${processedImages.length} new images`);
       }
-    } catch (error) {
-      console.error('Pinterest Downloader error:', error);
-    } finally {
-      this.isProcessing = false;
-    }
-  }
-
-  async extractImages() {
-    const images = [];
-    
-    if (!this.messagesContainer) {
-      console.log('Pinterest Downloader: No messages container found');
-      return images;
-    }
-
-    // Look specifically for message-item-container elements
-    const messages = this.messagesContainer.querySelectorAll('[data-test-id="message-item-container"]');
-    
-    if (messages.length === 0) {
-      console.log('Pinterest Downloader: No message-item-container elements found');
-      return images;
-    }
-
-    for (const message of messages) {
-      try {
-        const imageData = await this.extractImageFromMessage(message);
-        if (imageData) {
-          images.push(imageData);
-        }
-      } catch (error) {
-        console.error('Error extracting image from message:', error);
-      }
-    }
-
-    return images; // Don't sort, keep original order
-  }
-
-  async extractImageFromMessage(messageElement) {
-    // Look for the specific pin link format with sender and message info
-    const pinLink = messageElement.querySelector('a[href*="/pin/"][href*="conversation_id"][href*="message"][href*="sender"]');
-    if (!pinLink) {
-      console.log('Pinterest Downloader: No valid pin link found in message');
-      return null;
-    }
-
-    // Extract data from the link href
-    const linkData = this.extractLinkData(pinLink.href);
-    if (!linkData) {
-      console.log('Pinterest Downloader: Could not extract link data');
-      return null;
-    }
-
-    // Get the main image URL by fetching the pin page
-    const imageUrl = await this.fetchMainImageFromPin(pinLink.href);
-    if (!imageUrl) {
-      console.log('Pinterest Downloader: Could not fetch main image from pin page');
-      return null;
-    }
-
-    return {
-      imageUrl,
-      senderId: linkData.senderId,
-      messageId: linkData.messageId,
-      conversationId: linkData.conversationId,
-      pinId: linkData.pinId,
-      pinUrl: pinLink.href
-    };
-  }
-
-  extractLinkData(href) {
-    try {
-      // Parse URL to extract parameters
-      const url = new URL(href, 'https://pinterest.com');
-      const pathMatch = url.pathname.match(/\/pin\/(\d+)/);
-      const searchParams = new URLSearchParams(url.search);
       
-      if (!pathMatch) return null;
-      
-      return {
-        pinId: pathMatch[1],
-        conversationId: searchParams.get('conversation_id'),
-        messageId: searchParams.get('message'),
-        senderId: searchParams.get('sender')
-      };
-    } catch (error) {
-      console.error('Error parsing link data:', error);
-      return null;
+      this.autoDownload = false;
     }
   }
 
@@ -203,6 +98,7 @@ class PinterestMessageParser {
     }
   }
 }
+
 
 // Initialize the parser when the script loads
 new PinterestMessageParser();
