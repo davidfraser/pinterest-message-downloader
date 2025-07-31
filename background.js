@@ -355,9 +355,9 @@ class PinterestDownloader {
         let currentImageIndex = 0;
         let imageElements = [];
         
-        // Collect all image containers (non-video)
+        // Collect all image containers (including videos)
         function initializeLightbox() {
-            imageElements = Array.from(document.querySelectorAll('a.pin-image-container:not([onclick])'));
+            imageElements = Array.from(document.querySelectorAll('a.pin-image-container'));
             
             imageElements.forEach((element, index) => {
                 element.addEventListener('click', (e) => {
