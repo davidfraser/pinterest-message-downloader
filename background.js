@@ -148,6 +148,13 @@ class PinterestDownloader {
   generateHtmlContent(images, year, month) {
     const monthName = new Date(year, month - 1).toLocaleString('default', { month: 'long' });
     
+    // Sort images by timestamp ascending (earliest first)
+    const sortedImages = [...images].sort((a, b) => {
+      const timestampA = a.timestamp || '';
+      const timestampB = b.timestamp || '';
+      return timestampA.localeCompare(timestampB);
+    });
+    
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -295,6 +302,34 @@ class PinterestDownloader {
             max-width: 100%;
             text-align: center;
         }
+        .lightbox-video-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80px;
+            height: 80px;
+            background: rgba(0,0,0,0.7);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            z-index: 10002;
+        }
+        .lightbox-video-overlay:hover {
+            background: rgba(0,0,0,0.9);
+            transform: translate(-50%, -50%) scale(1.1);
+        }
+        .lightbox-play-icon {
+            width: 0;
+            height: 0;
+            border-left: 24px solid white;
+            border-top: 16px solid transparent;
+            border-bottom: 16px solid transparent;
+            margin-left: 6px;
+        }
     </style>
 </head>
 <body>
@@ -304,7 +339,7 @@ class PinterestDownloader {
     </div>
     
     <div class="pin-grid" id="gallery">
-        ${images.map((img, index) => {
+        ${sortedImages.map((img, index) => {
           const isVideo = img.isVideo || (img.filename && img.filename.includes(' video '));
           const videoRedirectFile = isVideo && img.filename ? img.filename.replace(/\.[^.]+$/, '.html').replace(/^pinterest-messages\//, '') : null;
           
@@ -372,12 +407,35 @@ class PinterestDownloader {
             const imageContainer = imageElements[index];
             const imageSrc = imageContainer.href;
             const pinCard = imageContainer.closest('.pin-card');
+            const isVideo = pinCard.querySelector('.video-overlay') !== null;
             
             // Set image source
             lightboxImage.src = imageSrc;
             lightboxImage.onload = () => {
                 console.log('Custom Lightbox: Image loaded at natural size:', lightboxImage.naturalWidth + 'x' + lightboxImage.naturalHeight);
             };
+            
+            // Add video overlay if this is a video
+            const existingOverlay = lightboxImage.parentNode.querySelector('.lightbox-video-overlay');
+            if (existingOverlay) {
+                existingOverlay.remove();
+            }
+            
+            if (isVideo) {
+                const videoOverlay = document.createElement('div');
+                videoOverlay.className = 'lightbox-video-overlay';
+                videoOverlay.innerHTML = '<div class="lightbox-play-icon"></div>';
+                videoOverlay.onclick = () => {
+                    const videoRedirectFile = pinCard.querySelector('.video-overlay').getAttribute('onclick');
+                    if (videoRedirectFile) {
+                        const filename = videoRedirectFile.match(/openVideoRedirect\\('([^']+)'\\)/);
+                        if (filename && filename[1] && filename[1] !== '#') {
+                            window.open(filename[1], '_blank');
+                        }
+                    }
+                };
+                lightboxImage.parentNode.insertBefore(videoOverlay, lightboxImage.nextSibling);
+            }
             
             // Set caption
             const senderInfo = pinCard.querySelector('.pin-sender').textContent;
@@ -386,6 +444,9 @@ class PinterestDownloader {
             let captionHTML = '<div>' + senderInfo + '</div>';
             if (pinLink) {
                 captionHTML += '<div style="margin-top: 8px;"><a href="' + pinLink.href + '" target="_blank" style="color: #4dabf7; text-decoration: none;">View Original Pin</a></div>';
+            }
+            if (isVideo) {
+                captionHTML += '<div style="margin-top: 8px; color: #ff6b6b; font-weight: bold;">📹 VIDEO - Click play icon to open</div>';
             }
             lightboxCaption.innerHTML = captionHTML;
             
