@@ -239,7 +239,7 @@ class PinterestDownloader {
           
           return `
             <div class="pin-card">
-                <a href="${imageSrc}" class="pin-image-container" ${!isVideo ? `data-pswp-width="800" data-pswp-height="600"` : 'onclick="return false;"'} target="_blank">
+                <a href="${imageSrc}" class="pin-image-container" ${isVideo ? 'onclick="return false;"' : ''} target="_blank">
                     <img src="${imageSrc}" alt="Pinterest Pin" class="pin-image" loading="lazy">
                     ${isVideo ? `
                         <div class="video-badge">VIDEO</div>
@@ -275,6 +275,14 @@ class PinterestDownloader {
             loop: true,
             zoom: true,
             preload: [1, 1], // Preload 1 image before and after current
+            // Let PhotoSwipe determine image dimensions dynamically
+            showHideAnimationType: 'zoom',
+            // Enable scrolling for large images
+            wheelToZoom: true,
+            // Configure zoom behavior
+            initialZoomLevel: 'fit',
+            secondaryZoomLevel: 1.0, // 100% zoom level
+            maxZoomLevel: 2.0,
         });
         
         // Customize lightbox behavior
@@ -310,6 +318,24 @@ class PinterestDownloader {
             }
         }
         
+        // Add custom zoom behavior for better image viewing
+        lightbox.on('beforeOpen', () => {
+            lightbox.pswp.on('change', () => {
+                const slide = lightbox.pswp.currSlide;
+                if (slide && slide.data) {
+                    // If image would be scaled down to fit, allow clicking to view at 100%
+                    const fitZoom = slide.zoomLevels.fit;
+                    if (fitZoom < 1.0) {
+                        // Image is larger than viewport, clicking will zoom to 100%
+                        slide.zoomLevels.secondary = 1.0;
+                    } else {
+                        // Image fits in viewport, clicking will zoom in further
+                        slide.zoomLevels.secondary = Math.min(2.0, fitZoom * 2);
+                    }
+                }
+            });
+        });
+
         lightbox.init();
         
         // Function to handle video redirect
