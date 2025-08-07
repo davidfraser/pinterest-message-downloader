@@ -19,8 +19,8 @@
   ],
   "license": "MIT",
   "scripts": {
-    "build": "echo 'Extension built'",
-    "package": "zip -r pinterest-message-downloader-v1.0.0.zip . -x '*.git*' 'node_modules/*' 'package*.json' '*.md' '*.sh' '*.txt' '*.svg'"
+    "export-icons": "inkscape icon.svg --export-type=png --export-filename=images/icon-16.png -w 16 -h 16 && inkscape icon.svg --export-type=png --export-filename=images/icon-32.png -w 32 -h 32 && inkscape icon.svg --export-type=png --export-filename=images/icon-48.png -w 48 -h 48 && inkscape icon.svg --export-type=png --export-filename=images/icon-128.png -w 128 -h 128",
+    "package": "zip -r dist/pinterest-message-downloader-v1.0.0.zip . -x '*.git*' 'node_modules/*' 'package*.json' '*.md' '*.sh' '*.txt' '*.svg' '_config.yml' 'index.md' 'dist/*'"
   },
   "devDependencies": {},
   "chrome_extension": {
