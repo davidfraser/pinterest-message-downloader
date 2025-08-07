@@ -1,0 +1,23 @@
+title: Pinterest Message Image Downloader
+description: Downloads images and video links from Pinterest messages into a gallery for offline viewing
+author: David Fraser
+url: https://davidfraser.github.io
+baseurl: /pinterest-message-image-downloader
+
+markdown: kramdown
+highlighter: rouge
+theme: minima
+
+plugins:
+  - jekyll-feed
+  - jekyll-sitemap
+
+include:
+  - README.md
+
+defaults:
+  - scope:
+      path: ""
+      type: "pages"
+    values:
+      layout: "page"

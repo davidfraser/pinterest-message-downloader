@@ -1,0 +1,30 @@
+{
+  "name": "pinterest-message-image-downloader",
+  "version": "1.0.0",
+  "description": "Downloads images and video links from Pinterest messages into a gallery for offline viewing",
+  "author": "David Fraser",
+  "homepage": "https://davidfraser.github.io/pinterest-message-image-downloader/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/davidfraser/pinterest-message-image-downloader.git"
+  },
+  "keywords": [
+    "pinterest",
+    "downloader",
+    "chrome-extension",
+    "social-networking",
+    "tools",
+    "gallery",
+    "offline"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "build": "echo 'Extension built'",
+    "package": "zip -r pinterest-message-downloader-v1.0.0.zip . -x '*.git*' 'node_modules/*' 'package*.json' '*.md' '*.sh' '*.txt' '*.svg'"
+  },
+  "devDependencies": {},
+  "chrome_extension": {
+    "category": ["Social Networking", "Tools"],
+    "permissions_justification": "This extension requires storage permission to save user preferences, downloads permission to save images and video links to the user's computer, activeTab permission to interact with Pinterest pages, and scripting permission to inject content scripts for downloading functionality."
+  }
+}

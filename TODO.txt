@@ -1,0 +1,5 @@
+✓ Also include the video elements in going left and right with the lightbox. Display the image with a play icon overlay as it is done in the main gallery, which links to open the video url through the associated HTML file in a new tab, just like in the gallery view.
+✓ Sort the gallery view in order of the timestamp, ascending.
+✓ package this as an extension and publish to Chrome extensions
+✓ generate a decent icon - then use it
+Automate scrolling up until the last date (later)
